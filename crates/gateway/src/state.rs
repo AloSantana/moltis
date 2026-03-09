@@ -403,6 +403,10 @@ pub struct GatewayState {
     #[cfg(feature = "vault")]
     pub vault: Option<Arc<moltis_vault::Vault>>,
 
+    /// Multi-agent orchestrator (routing, stats, parallel execution).
+    #[cfg(feature = "agents-orchestration")]
+    pub orchestrator: Arc<moltis_agents::orchestrator::Orchestrator>,
+
     // ── Channel webhook deduplication (separate lock) ──────────────────────
     /// Idempotency dedup store for channel webhooks. Uses its own
     /// `std::sync::RwLock` to avoid contending with the main `inner` lock.
@@ -499,6 +503,8 @@ impl GatewayState {
             metrics_store,
             #[cfg(feature = "vault")]
             vault,
+            #[cfg(feature = "agents-orchestration")]
+            orchestrator: Arc::new(moltis_agents::orchestrator::Orchestrator::new()),
             channel_webhook_dedup: std::sync::RwLock::new(
                 crate::channel_webhook_dedup::ChannelWebhookDedupeStore::new(),
             ),

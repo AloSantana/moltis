@@ -99,9 +99,11 @@ which                  = { optional = true, workspace = true }
 
 [features]
 agent = []
+agents-orchestration = []
 caldav = ["dep:moltis-caldav"]
 default = [
   "agent",
+  "agents-orchestration",
   "caldav",
   "file-watcher",
   "graphql",

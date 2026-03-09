@@ -373,6 +373,16 @@ fn build_schema_map() -> KnownKeys {
             Struct(HashMap::from([
                 ("default_preset", Leaf),
                 ("presets", Map(Box::new(agent_preset()))),
+                (
+                    "orchestration",
+                    Struct(HashMap::from([
+                        ("enabled", Leaf),
+                        ("routing_strategy", Leaf),
+                        ("max_concurrent_agents", Leaf),
+                        ("agent_timeout_secs", Leaf),
+                        ("disabled_roles", Leaf),
+                    ])),
+                ),
             ])),
         ),
         ("tools", tools()),
@@ -983,6 +993,30 @@ fn check_semantic_warnings(config: &MoltisConfig, diagnostics: &mut Vec<Diagnost
             message: format!(
                 "default preset \"{default_preset}\" is not defined in agents.presets"
             ),
+        });
+    }
+
+    // agents.orchestration.max_concurrent_agents must be at least 1.
+    if config.agents.orchestration.enabled
+        && config.agents.orchestration.max_concurrent_agents == 0
+    {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            category: "invalid-value",
+            path: "agents.orchestration.max_concurrent_agents".into(),
+            message: "max_concurrent_agents must be at least 1".into(),
+        });
+    }
+
+    // agents.orchestration.agent_timeout_secs must be positive.
+    if config.agents.orchestration.enabled
+        && config.agents.orchestration.agent_timeout_secs == 0
+    {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            category: "invalid-value",
+            path: "agents.orchestration.agent_timeout_secs".into(),
+            message: "agent_timeout_secs must be at least 1".into(),
         });
     }
 
@@ -2295,5 +2329,63 @@ tool_mode = "{mode}"
                 result.diagnostics
             );
         }
+    }
+
+    #[test]
+    fn agents_orchestration_valid_config_no_errors() {
+        let toml = r#"
+[agents.orchestration]
+enabled = true
+routing_strategy = "hybrid"
+max_concurrent_agents = 4
+agent_timeout_secs = 120
+"#;
+        let result = validate_toml_str(toml);
+        let errors: Vec<_> = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "valid orchestration config should have no errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn agents_orchestration_zero_concurrent_is_error() {
+        let toml = r#"
+[agents.orchestration]
+enabled = true
+max_concurrent_agents = 0
+"#;
+        let result = validate_toml_str(toml);
+        let err = result
+            .diagnostics
+            .iter()
+            .find(|d| d.path == "agents.orchestration.max_concurrent_agents");
+        assert!(
+            err.is_some(),
+            "max_concurrent_agents = 0 should be an error"
+        );
+    }
+
+    #[test]
+    fn agents_orchestration_zero_timeout_is_error() {
+        let toml = r#"
+[agents.orchestration]
+enabled = true
+agent_timeout_secs = 0
+"#;
+        let result = validate_toml_str(toml);
+        let err = result
+            .diagnostics
+            .iter()
+            .find(|d| d.path == "agents.orchestration.agent_timeout_secs");
+        assert!(
+            err.is_some(),
+            "agent_timeout_secs = 0 should be an error"
+        );
     }
 }

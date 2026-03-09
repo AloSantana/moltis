@@ -14,6 +14,9 @@ mod services;
 mod subscribe;
 mod voice;
 
+#[cfg(feature = "agents-orchestration")]
+mod agents_orchestration;
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /// Context passed to every method handler.
@@ -122,6 +125,10 @@ const READ_METHODS: &[&str] = &[
     "openclaw.detect",
     "openclaw.scan",
     "system.describe",
+    #[cfg(feature = "agents-orchestration")]
+    "agents.roles.route",
+    #[cfg(feature = "agents-orchestration")]
+    "agents.roles.list",
 ];
 
 const WRITE_METHODS: &[&str] = &[
@@ -234,6 +241,8 @@ const WRITE_METHODS: &[&str] = &[
     "unsubscribe",
     "channel.join",
     "channel.leave",
+    #[cfg(feature = "agents-orchestration")]
+    "agents.roles.execute",
 ];
 
 const APPROVAL_METHODS: &[&str] = &["exec.approval.request", "exec.approval.resolve"];
@@ -397,6 +406,8 @@ impl MethodRegistry {
         services::register(self);
         subscribe::register(self);
         channel_mux::register(self);
+        #[cfg(feature = "agents-orchestration")]
+        agents_orchestration::register(self);
     }
 }
 
