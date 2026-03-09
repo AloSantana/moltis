@@ -383,9 +383,11 @@ docker exec -it moltis moltis auth login --provider openai-codex
 # Generic container
 docker exec -it &lt;container&gt; moltis auth login --provider openai-codex
 </code></pre>
-<p>The CLI opens a browser on the machine where you run the command. After you
-log in, tokens are saved to the config volume and the running gateway picks
-them up automatically — no restart needed.</p>
+<p>The CLI opens a browser on the machine where you run the command. If automatic
+callback capture fails, Moltis prompts you to paste the callback URL (or
+<code>code#state</code>) directly in the terminal. After you log in, tokens are saved to
+the config volume and the running gateway picks them up automatically — no
+restart needed.</p>
 <div id="admonition-tip-1" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-1-title">
 <div class="admonition-title">
 <div id="admonition-tip-1-title">

@@ -458,8 +458,9 @@ machine — not the server. In that case, authenticate via the CLI instead:</p>
 <pre><code class="language-bash">docker exec -it moltis moltis auth login --provider openai-codex
 </code></pre>
 <p>The CLI opens a browser on the machine where you run the command and handles
-the OAuth callback locally. Tokens are saved to the config volume and picked
-up by the running gateway automatically.</p>
+the OAuth callback locally. If automatic callback capture fails, Moltis prompts
+you to paste the callback URL (or <code>code#state</code>) into the terminal. Tokens are
+saved to the config volume and picked up by the running gateway automatically.</p>
 <h3 id="permission-denied-on-bind-mounts"><a class="header" href="#permission-denied-on-bind-mounts">Permission denied on bind mounts</a></h3>
 <p>When using bind mounts, ensure the directories exist and are writable:</p>
 <pre><code class="language-bash">mkdir -p ./config ./data

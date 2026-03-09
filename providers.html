@@ -300,6 +300,9 @@ models = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash"]
 <li>Click <strong>Connect</strong> and complete the auth flow.</li>
 <li>Choose a Codex model.</li>
 </ol>
+<p>If the browser cannot reach <code>localhost:1455</code>, Moltis now supports a manual
+fallback in both <strong>Settings</strong> and <strong>Onboarding</strong>: paste the callback URL (or
+<code>code#state</code>) into the OAuth panel and submit it.</p>
 <div id="admonition-docker-and-cloud-deployments" class="admonition admonish-note" role="note" aria-labelledby="admonition-docker-and-cloud-deployments-title">
 <div class="admonition-title">
 <div id="admonition-docker-and-cloud-deployments-title">
@@ -317,7 +320,9 @@ docker exec -it moltis moltis auth login --provider openai-codex
 # Fly.io
 fly ssh console -C "moltis auth login --provider openai-codex"
 </code></pre>
-<p>The CLI opens a browser on your machine and handles the callback locally.
+<p>The CLI opens a browser on your machine and handles the callback locally. If
+automatic callback capture fails, the CLI prompts you to paste the callback URL
+(or <code>code#state</code>) directly in the terminal.
 Tokens are saved to the config volume and picked up by the gateway automatically.</p>
 </div>
 </div>
