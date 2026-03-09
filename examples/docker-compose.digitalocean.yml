@@ -1,0 +1,96 @@
+# Moltis Docker Compose for DigitalOcean Droplets
+#
+# Use this on a DigitalOcean Droplet (VM) for persistent data storage.
+# Unlike App Platform, Droplets support named Docker volumes that survive
+# container restarts and image upgrades.
+#
+# Quick start:
+#   1. Create a Droplet (Ubuntu 22.04, at least 1 GB RAM)
+#   2. Install Docker: https://docs.docker.com/engine/install/ubuntu/
+#   3. Copy this file to your Droplet, then:
+#
+#      MOLTIS_PASSWORD=your-password docker compose up -d
+#
+#   4. Open http://<droplet-ip>:13131 in your browser.
+#
+# For HTTPS (recommended for production), place Nginx or Caddy in front of
+# Moltis and set MOLTIS_NO_TLS=true + MOLTIS_BEHIND_PROXY=true.
+#
+# Required environment variable:
+#   MOLTIS_PASSWORD - initial authentication password
+#
+# Optional environment variables (set in the shell or a .env file):
+#   MOLTIS_DEPLOY_PLATFORM=digitalocean  (already set below)
+#   TS_AUTHKEY                           - Tailscale auth key (see tailscale service)
+#
+# OAuth callback port (1455) is needed only if you use OpenAI Codex OAuth.
+# Remove that port mapping if you do not need it.
+
+services:
+  moltis:
+    image: ghcr.io/moltis-org/moltis:latest
+    container_name: moltis
+    restart: unless-stopped
+    ports:
+      - "13131:13131"
+      - "13132:13132"
+      - "1455:1455"    # OAuth callback (OpenAI Codex, etc.)
+    command:
+      - --bind
+      - 0.0.0.0
+      - --port
+      - "13131"
+    environment:
+      - MOLTIS_PASSWORD=${MOLTIS_PASSWORD:?Set MOLTIS_PASSWORD before running}
+      - MOLTIS_CONFIG_DIR=/data/config
+      - MOLTIS_DATA_DIR=/data
+      - MOLTIS_DEPLOY_PLATFORM=digitalocean
+      # Uncomment if placing behind an Nginx/Caddy reverse proxy for HTTPS:
+      # - MOLTIS_NO_TLS=true
+      # - MOLTIS_BEHIND_PROXY=true
+      # - MOLTIS_WEBAUTHN_RP_ID=your-domain.com
+      # - MOLTIS_WEBAUTHN_ORIGIN=https://your-domain.com
+    volumes:
+      # Persistent data: databases, sessions, memory files, config
+      - moltis-data:/data
+      # Docker socket: enables sandboxed tool execution inside containers
+      # Remove if you do not need the agent to run shell commands
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -Ssf http://localhost:13131/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Optional: Tailscale sidecar for secure remote access without opening
+  # ports to the public internet.
+  #
+  # To enable:
+  #   1. Uncomment the tailscale service below.
+  #   2. Set TS_AUTHKEY to a Tailscale auth key with the 'tag:moltis' tag.
+  #   3. Access Moltis via your Tailscale device IP instead of the Droplet IP.
+  #
+  # tailscale:
+  #   image: tailscale/tailscale:latest
+  #   container_name: moltis-tailscale
+  #   restart: unless-stopped
+  #   environment:
+  #     - TS_AUTHKEY=${TS_AUTHKEY:?Set TS_AUTHKEY to your Tailscale auth key}
+  #     - TS_HOSTNAME=moltis-droplet
+  #     - TS_STATE_DIR=/var/lib/tailscale
+  #     - TS_EXTRA_ARGS=--advertise-tags=tag:moltis
+  #   volumes:
+  #     - tailscale-state:/var/lib/tailscale
+  #     - /dev/net/tun:/dev/net/tun
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
+  #   network_mode: "service:moltis"
+
+volumes:
+  moltis-data:
+    driver: local
+  # Uncomment when using the Tailscale sidecar:
+  # tailscale-state:
+  #   driver: local

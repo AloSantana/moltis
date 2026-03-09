@@ -114,6 +114,47 @@ services in the deploy template. Data will be lost on redeployment. For
 persistent storage, consider using a DigitalOcean Droplet with Docker instead.
 ```
 
+## DigitalOcean Droplet (with persistent storage)
+
+Use a Droplet when you need data to survive container restarts and image upgrades.
+The repository includes a ready-made Compose file:
+
+```bash
+# On your Droplet (Ubuntu 22.04 or later)
+# 1. Install Docker: https://docs.docker.com/engine/install/ubuntu/
+# 2. Copy the Compose file from the repository
+#    Replace 'main' with a specific release tag for production (e.g. 'v0.10.17')
+curl -LO https://raw.githubusercontent.com/moltis-org/moltis/main/examples/docker-compose.digitalocean.yml
+
+# 3. Start Moltis
+MOLTIS_PASSWORD=your-password docker compose -f docker-compose.digitalocean.yml up -d
+
+# 4. Check health
+curl http://localhost:13131/health
+```
+
+The Compose file:
+- Stores all data in a named Docker volume (`moltis-data`) that persists across upgrades.
+- Mounts the Docker socket so the agent can run sandboxed shell commands.
+- Includes an optional commented-out Tailscale sidecar for secure remote access
+  without exposing the Droplet IP publicly.
+
+View the full file with inline documentation on GitHub:
+[`examples/docker-compose.digitalocean.yml`](https://github.com/moltis-org/moltis/blob/main/examples/docker-compose.digitalocean.yml)
+
+### Secure remote access with Tailscale
+
+To access your Droplet-hosted Moltis over a private Tailscale network instead of
+the public internet, uncomment the `tailscale` service in the Compose file and set
+`TS_AUTHKEY` to a Tailscale auth key tagged `tag:moltis`:
+
+```bash
+TS_AUTHKEY=tskey-auth-... MOLTIS_PASSWORD=your-password \
+  docker compose -f docker-compose.digitalocean.yml up -d
+```
+
+Once connected, access Moltis via `http://<tailscale-ip>:13131`.
+
 ## Render
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/moltis-org/moltis)

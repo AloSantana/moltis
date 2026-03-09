@@ -451,9 +451,13 @@ struct OpenCodeFrontmatter {
 pub struct OpenCodeAdapter;
 
 impl OpenCodeAdapter {
-    /// Convert a filename stem to a display name (e.g. "rust-idioms" → "Rust Idioms").
+    /// Convert a filename stem to a display name.
+    ///
+    /// Splits on both `-` and `_` so that both kebab-case (`rust-idioms`) and
+    /// snake_case (`rust_idioms`) oh-my-opencode rule files render correctly
+    /// (e.g. "Rust Idioms").
     fn slug_to_display_name(slug: &str) -> String {
-        slug.split('-')
+        slug.split(['-', '_'])
             .map(|w| {
                 let mut c = w.chars();
                 match c.next() {
@@ -1152,5 +1156,98 @@ Read and write PDF documents.
         let skills = result.unwrap().unwrap();
         assert_eq!(skills.len(), 1);
         assert!(skills[0].metadata.name.ends_with(":style"));
+    }
+
+    // ── Additional OpenCode / oh-my-opencode adapter tests ───────────────────
+
+    #[test]
+    fn test_opencode_slug_to_display_name_kebab() {
+        assert_eq!(OpenCodeAdapter::slug_to_display_name("rust-idioms"), "Rust Idioms");
+        assert_eq!(OpenCodeAdapter::slug_to_display_name("commit-style"), "Commit Style");
+        assert_eq!(OpenCodeAdapter::slug_to_display_name("single"), "Single");
+    }
+
+    #[test]
+    fn test_opencode_slug_to_display_name_snake_case() {
+        // oh-my-opencode repos sometimes use snake_case file names
+        assert_eq!(OpenCodeAdapter::slug_to_display_name("rust_idioms"), "Rust Idioms");
+        assert_eq!(OpenCodeAdapter::slug_to_display_name("code_review"), "Code Review");
+    }
+
+    #[test]
+    fn test_opencode_slug_to_display_name_mixed() {
+        assert_eq!(
+            OpenCodeAdapter::slug_to_display_name("my-rust_rules"),
+            "My Rust Rules"
+        );
+    }
+
+    #[test]
+    fn test_opencode_adapter_crlf_frontmatter() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        // Simulate a Windows-style CRLF line-ending frontmatter block
+        let content =
+            "---\r\nname: crlf-rule\r\ndescription: A CRLF rule\r\n---\r\n\r\nRule body here.";
+        std::fs::write(root.join(".opencode/rules/crlf-rule.md"), content).unwrap();
+
+        let adapter = OpenCodeAdapter;
+        let results = adapter.scan_skills(root).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].metadata.description, "A CRLF rule");
+        assert!(results[0].body.contains("Rule body here."));
+    }
+
+    #[test]
+    fn test_opencode_adapter_name_override_from_frontmatter() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        // The frontmatter `name` overrides the filename stem in the skill identifier
+        std::fs::write(
+            root.join(".opencode/rules/file-stem.md"),
+            "---\nname: overridden-name\ndescription: Name comes from frontmatter\n---\n\nBody.",
+        )
+        .unwrap();
+
+        let adapter = OpenCodeAdapter;
+        let results = adapter.scan_skills(root).unwrap();
+        assert_eq!(results.len(), 1);
+        // Skill name should use the frontmatter `name`, not the file stem
+        assert!(
+            results[0].metadata.name.ends_with(":overridden-name"),
+            "expected name ending with ':overridden-name', got '{}'",
+            results[0].metadata.name
+        );
+        // Display name should still be derived from the file stem
+        assert_eq!(results[0].display_name.as_deref(), Some("File Stem"));
+    }
+
+    #[test]
+    fn test_opencode_adapter_duplicate_name_deduplication() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        // Two files with the same `name` in frontmatter — second should be skipped
+        std::fs::write(
+            root.join(".opencode/rules/rule-a.md"),
+            "---\nname: shared-name\n---\n\nFirst rule.",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".opencode/rules/rule-b.md"),
+            "---\nname: shared-name\n---\n\nSecond rule (duplicate).",
+        )
+        .unwrap();
+
+        let adapter = OpenCodeAdapter;
+        let results = adapter.scan_skills(root).unwrap();
+        // Only one entry should survive deduplication
+        assert_eq!(results.len(), 1);
+        assert!(results[0].metadata.name.ends_with(":shared-name"));
     }
 }
