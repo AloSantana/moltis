@@ -1159,12 +1159,21 @@ async fn build_prompt_runtime_context(
     let sandbox_fut = async {
         if let Some(router) = state.sandbox_router() {
             let is_sandboxed = router.is_sandboxed(session_key).await;
+            // Only include sandbox context when sandbox is actually enabled for
+            // this session.  When disabled, omitting it prevents the LLM from
+            // hallucinating sandbox usage (see #360).  This intentionally
+            // discards `session_override` — its only consumer is the prompt
+            // line we are omitting, and no other code reads it from
+            // `PromptSandboxRuntimeContext`.
+            if !is_sandboxed {
+                return None;
+            }
             let config = router.config();
             let backend_name = router.backend_name();
             let workspace_mount = config.workspace_mount.to_string();
             let workspace_path = (workspace_mount != "none").then(|| data_dir_display.clone());
             Some(PromptSandboxRuntimeContext {
-                exec_sandboxed: is_sandboxed,
+                exec_sandboxed: true,
                 mode: Some(config.mode.to_string()),
                 backend: Some(backend_name.to_string()),
                 scope: Some(config.scope.to_string()),
@@ -1176,18 +1185,7 @@ async fn build_prompt_runtime_context(
                 session_override: session_entry.and_then(|entry| entry.sandbox_enabled),
             })
         } else {
-            Some(PromptSandboxRuntimeContext {
-                exec_sandboxed: false,
-                mode: Some("off".to_string()),
-                backend: Some("none".to_string()),
-                scope: None,
-                image: None,
-                home: None,
-                workspace_mount: None,
-                workspace_path: None,
-                no_network: None,
-                session_override: None,
-            })
+            None
         }
     };
 
@@ -1723,9 +1721,10 @@ impl ModelService for LiveModelService {
         let reg = self.providers.read().await;
         let disabled = self.disabled.read().await;
         let order = self.priority_order().await;
+        let all_models = reg.list_models_with_reasoning_variants();
         let prioritized = Self::prioritize_models(
             &order,
-            reg.list_models()
+            all_models
                 .iter()
                 .filter(|m| moltis_providers::is_chat_capable_model(&m.id))
                 .filter(|m| !disabled.is_disabled(&m.id))
@@ -1759,9 +1758,10 @@ impl ModelService for LiveModelService {
         let reg = self.providers.read().await;
         let disabled = self.disabled.read().await;
         let order = self.priority_order().await;
+        let all_models = reg.list_models_with_reasoning_variants();
         let prioritized = Self::prioritize_models(
             &order,
-            reg.list_models()
+            all_models
                 .iter()
                 .filter(|m| moltis_providers::is_chat_capable_model(&m.id)),
         );
@@ -7399,6 +7399,21 @@ async fn deliver_channel_replies_to_targets(
                             }
                         }
                     },
+                    None if text_already_streamed => {
+                        // TTS disabled/failed but text was already streamed —
+                        // only send logbook follow-up if present.
+                        if !logbook_html.is_empty()
+                            && let Err(e) = outbound
+                                .send_html(&target.account_id, &target.chat_id, &logbook_html, None)
+                                .await
+                        {
+                            warn!(
+                                account_id = target.account_id,
+                                chat_id = target.chat_id,
+                                "failed to send logbook follow-up: {e}"
+                            );
+                        }
+                    },
                     None => {
                         let result = if logbook_html.is_empty() {
                             outbound
@@ -7434,6 +7449,21 @@ async fn deliver_channel_replies_to_targets(
                                 account_id = target.account_id,
                                 chat_id = target.chat_id,
                                 "failed to send channel voice reply: {e}"
+                            );
+                        }
+                    },
+                    None if text_already_streamed => {
+                        // TTS disabled/failed but text was already streamed —
+                        // only send logbook follow-up if present.
+                        if !logbook_html.is_empty()
+                            && let Err(e) = outbound
+                                .send_html(&target.account_id, &target.chat_id, &logbook_html, None)
+                                .await
+                        {
+                            warn!(
+                                account_id = target.account_id,
+                                chat_id = target.chat_id,
+                                "failed to send logbook follow-up: {e}"
                             );
                         }
                     },
@@ -8744,6 +8774,147 @@ mod tests {
                 .is_empty(),
             "channel targets should be drained even when skipped by stream dedupe"
         );
+    }
+
+    /// Regression test for #371: when `desired_reply_medium` is Voice but TTS
+    /// is disabled, the text fallback must be skipped for targets that were
+    /// already streamed — otherwise two identical text messages are delivered.
+    #[tokio::test]
+    async fn deliver_channel_replies_voice_no_tts_skips_streamed_text_fallback() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let outbound: Arc<dyn moltis_channels::plugin::ChannelOutbound> =
+            Arc::new(MockChannelOutbound {
+                calls: Arc::clone(&calls),
+                delay: Duration::from_millis(0),
+            });
+        let state: Arc<dyn ChatRuntime> =
+            Arc::new(MockChatRuntime::new().with_channel_outbound(outbound));
+        let target = moltis_channels::ChannelReplyTarget {
+            channel_type: moltis_channels::ChannelType::Telegram,
+            account_id: "acct".to_string(),
+            chat_id: "123".to_string(),
+            message_id: Some("42".to_string()),
+        };
+
+        state
+            .push_channel_reply("telegram:acct:123", target.clone())
+            .await;
+
+        let mut streamed = HashSet::new();
+        streamed.insert(ChannelReplyTargetKey::from(&target));
+        // Voice medium + streamed target + NoopTtsService (disabled) = no text fallback
+        deliver_channel_replies(
+            &state,
+            "telegram:acct:123",
+            "hello",
+            ReplyMedium::Voice,
+            &streamed,
+        )
+        .await;
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "no outbound calls expected: TTS is disabled and text was already streamed"
+        );
+    }
+
+    /// Regression test for #371: Telegram + Voice + NoTTS + streamed + logbook
+    /// present — the logbook follow-up must still be sent via `send_html` even
+    /// though the text fallback is skipped.
+    #[tokio::test]
+    async fn deliver_channel_replies_voice_no_tts_streamed_sends_logbook() {
+        let text_calls = Arc::new(AtomicUsize::new(0));
+        let suffix_calls = Arc::new(AtomicUsize::new(0));
+        let html_payloads = Arc::new(Mutex::new(Vec::new()));
+        let outbound_impl = Arc::new(RecordingChannelOutbound {
+            text_calls: Arc::clone(&text_calls),
+            suffix_calls: Arc::clone(&suffix_calls),
+            html_payloads: Arc::clone(&html_payloads),
+        });
+        let outbound: Arc<dyn moltis_channels::plugin::ChannelOutbound> = outbound_impl;
+        let state: Arc<dyn ChatRuntime> =
+            Arc::new(MockChatRuntime::new().with_channel_outbound(outbound));
+
+        let target = moltis_channels::ChannelReplyTarget {
+            channel_type: moltis_channels::ChannelType::Telegram,
+            account_id: "acct".to_string(),
+            chat_id: "123".to_string(),
+            message_id: Some("42".to_string()),
+        };
+        let session_key = "telegram:acct:123";
+        state.push_channel_reply(session_key, target.clone()).await;
+        state
+            .push_channel_status_log(session_key, "🔍 Searching web".to_string())
+            .await;
+
+        let mut streamed = HashSet::new();
+        streamed.insert(ChannelReplyTargetKey::from(&target));
+        deliver_channel_replies(&state, session_key, "hello", ReplyMedium::Voice, &streamed).await;
+
+        assert_eq!(
+            text_calls.load(Ordering::SeqCst),
+            0,
+            "no text sends: text was already streamed"
+        );
+        assert_eq!(
+            suffix_calls.load(Ordering::SeqCst),
+            0,
+            "no text+suffix sends: text was already streamed"
+        );
+        let payloads = html_payloads.lock().await.clone();
+        assert_eq!(payloads.len(), 1, "expected one logbook follow-up");
+        assert!(payloads[0].contains("Activity log"));
+        assert!(payloads[0].contains("Searching web"));
+    }
+
+    /// Regression test for #371: non-Telegram (Discord) + Voice + NoTTS +
+    /// streamed — the logbook follow-up must still be sent, and duplicate
+    /// text must not be delivered.
+    #[tokio::test]
+    async fn deliver_channel_replies_voice_no_tts_streamed_non_telegram_sends_logbook() {
+        let text_calls = Arc::new(AtomicUsize::new(0));
+        let suffix_calls = Arc::new(AtomicUsize::new(0));
+        let html_payloads = Arc::new(Mutex::new(Vec::new()));
+        let outbound_impl = Arc::new(RecordingChannelOutbound {
+            text_calls: Arc::clone(&text_calls),
+            suffix_calls: Arc::clone(&suffix_calls),
+            html_payloads: Arc::clone(&html_payloads),
+        });
+        let outbound: Arc<dyn moltis_channels::plugin::ChannelOutbound> = outbound_impl;
+        let state: Arc<dyn ChatRuntime> =
+            Arc::new(MockChatRuntime::new().with_channel_outbound(outbound));
+
+        let target = moltis_channels::ChannelReplyTarget {
+            channel_type: moltis_channels::ChannelType::Discord,
+            account_id: "acct".to_string(),
+            chat_id: "456".to_string(),
+            message_id: Some("99".to_string()),
+        };
+        let session_key = "discord:acct:456";
+        state.push_channel_reply(session_key, target.clone()).await;
+        state
+            .push_channel_status_log(session_key, "🌐 Browsing: https://example.com".to_string())
+            .await;
+
+        let mut streamed = HashSet::new();
+        streamed.insert(ChannelReplyTargetKey::from(&target));
+        deliver_channel_replies(&state, session_key, "hello", ReplyMedium::Voice, &streamed).await;
+
+        assert_eq!(
+            text_calls.load(Ordering::SeqCst),
+            0,
+            "no text sends: text was already streamed"
+        );
+        assert_eq!(
+            suffix_calls.load(Ordering::SeqCst),
+            0,
+            "no text+suffix sends: text was already streamed"
+        );
+        let payloads = html_payloads.lock().await.clone();
+        assert_eq!(payloads.len(), 1, "expected one logbook follow-up");
+        assert!(payloads[0].contains("Activity log"));
+        assert!(payloads[0].contains("Browsing: https://example.com"));
     }
 
     #[tokio::test]
@@ -10058,11 +10229,26 @@ mod tests {
 
         let result = service.list().await.unwrap();
         let arr = result.as_array().unwrap();
-        assert_eq!(arr.len(), 3);
+        // 3 base models + 3 reasoning variants for claude-opus-4-5 = 6
+        assert_eq!(arr.len(), 6);
 
         let result = service.list_all().await.unwrap();
         let arr = result.as_array().unwrap();
-        assert_eq!(arr.len(), 3);
+        assert_eq!(arr.len(), 6);
+
+        // Verify reasoning variants are present with correct display names.
+        let ids: Vec<&str> = arr.iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(ids.contains(&"anthropic::claude-opus-4-5@reasoning-high"));
+        assert!(ids.contains(&"anthropic::claude-opus-4-5@reasoning-medium"));
+        assert!(ids.contains(&"anthropic::claude-opus-4-5@reasoning-low"));
+        let high = arr
+            .iter()
+            .find(|m| m["id"].as_str() == Some("anthropic::claude-opus-4-5@reasoning-high"))
+            .unwrap();
+        assert_eq!(
+            high["displayName"].as_str().unwrap(),
+            "Claude Opus 4.5 (high reasoning)"
+        );
     }
 
     #[tokio::test]
