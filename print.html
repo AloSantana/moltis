@@ -7655,6 +7655,38 @@ services in the deploy template. Data will be lost on redeployment. For
 persistent storage, consider using a DigitalOcean Droplet with Docker instead.</p>
 </div>
 </div>
+<h2 id="digitalocean-droplet-with-persistent-storage"><a class="header" href="#digitalocean-droplet-with-persistent-storage">DigitalOcean Droplet (with persistent storage)</a></h2>
+<p>Use a Droplet when you need data to survive container restarts and image upgrades.
+The repository includes a ready-made Compose file:</p>
+<pre><code class="language-bash"># On your Droplet (Ubuntu 22.04 or later)
+# 1. Install Docker: https://docs.docker.com/engine/install/ubuntu/
+# 2. Copy the Compose file from the repository
+#    Replace 'main' with a specific release tag for production (e.g. 'v0.10.17')
+curl -LO https://raw.githubusercontent.com/moltis-org/moltis/main/examples/docker-compose.digitalocean.yml
+
+# 3. Start Moltis
+MOLTIS_PASSWORD=your-password docker compose -f docker-compose.digitalocean.yml up -d
+
+# 4. Check health
+curl http://localhost:13131/health
+</code></pre>
+<p>The Compose file:</p>
+<ul>
+<li>Stores all data in a named Docker volume (<code>moltis-data</code>) that persists across upgrades.</li>
+<li>Mounts the Docker socket so the agent can run sandboxed shell commands.</li>
+<li>Includes an optional commented-out Tailscale sidecar for secure remote access
+without exposing the Droplet IP publicly.</li>
+</ul>
+<p>View the full file with inline documentation on GitHub:
+<a href="https://github.com/moltis-org/moltis/blob/main/examples/docker-compose.digitalocean.yml"><code>examples/docker-compose.digitalocean.yml</code></a></p>
+<h3 id="secure-remote-access-with-tailscale"><a class="header" href="#secure-remote-access-with-tailscale">Secure remote access with Tailscale</a></h3>
+<p>To access your Droplet-hosted Moltis over a private Tailscale network instead of
+the public internet, uncomment the <code>tailscale</code> service in the Compose file and set
+<code>TS_AUTHKEY</code> to a Tailscale auth key tagged <code>tag:moltis</code>:</p>
+<pre><code class="language-bash">TS_AUTHKEY=tskey-auth-... MOLTIS_PASSWORD=your-password \
+  docker compose -f docker-compose.digitalocean.yml up -d
+</code></pre>
+<p>Once connected, access Moltis via <code>http://&lt;tailscale-ip&gt;:13131</code>.</p>
 <h2 id="render"><a class="header" href="#render">Render</a></h2>
 <p><a href="https://render.com/deploy?repo=https://github.com/moltis-org/moltis"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" /></a></p>
 <p>The repository includes a <code>render.yaml</code> blueprint. Click the button above or:</p>
