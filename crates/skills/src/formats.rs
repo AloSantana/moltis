@@ -26,6 +26,8 @@ pub enum PluginFormat {
     ClaudeCode,
     /// Codex plugin: `codex-plugin.json` or `.codex/plugin.json` (future).
     Codex,
+    /// OpenCode plugin: `.opencode/rules/*.md` rule files (oh-my-opencode compatible).
+    OpenCode,
     /// Fallback: `.md` files treated as generic skill prompts.
     Generic,
 }
@@ -36,6 +38,7 @@ impl std::fmt::Display for PluginFormat {
             Self::Skill => write!(f, "skill"),
             Self::ClaudeCode => write!(f, "claude_code"),
             Self::Codex => write!(f, "codex"),
+            Self::OpenCode => write!(f, "opencode"),
             Self::Generic => write!(f, "generic"),
         }
     }
@@ -425,11 +428,181 @@ impl FormatAdapter for ClaudeCodeAdapter {
     }
 }
 
+// ── OpenCode adapter ─────────────────────────────────────────────────────────
+
+/// OpenCode YAML frontmatter for `.opencode/rules/*.md` files.
+#[derive(Debug, Default, Deserialize)]
+struct OpenCodeFrontmatter {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    /// When `true` the rule is always injected into context (alwaysApply).
+    #[serde(rename = "alwaysApply", default)]
+    always_apply: bool,
+}
+
+/// Adapter for OpenCode rule repos (oh-my-opencode compatible).
+///
+/// OpenCode stores rules in `.opencode/rules/*.md` files. Each file may have
+/// YAML frontmatter with `name`, `description`, and `alwaysApply` fields.
+/// Falls back to scanning all `*.md` files directly inside `.opencode/` when
+/// no `rules/` subdirectory is present.
+pub struct OpenCodeAdapter;
+
+impl OpenCodeAdapter {
+    /// Convert a filename stem to a display name (e.g. "rust-idioms" → "Rust Idioms").
+    fn slug_to_display_name(slug: &str) -> String {
+        slug.split('-')
+            .map(|w| {
+                let mut c = w.chars();
+                match c.next() {
+                    Some(first) => first.to_uppercase().to_string() + c.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Parse optional YAML frontmatter from a markdown file.
+    ///
+    /// Returns `(frontmatter, body)` where `body` is the markdown content
+    /// without the frontmatter block.
+    fn parse_frontmatter(content: &str) -> (OpenCodeFrontmatter, &str) {
+        let Some(rest) = content.strip_prefix("---") else {
+            return (OpenCodeFrontmatter::default(), content);
+        };
+        // Accept `---\r\n` or `---\n`
+        let rest = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')).unwrap_or(rest);
+        let Some(end) = rest.find("\n---") else {
+            return (OpenCodeFrontmatter::default(), content);
+        };
+        let yaml = &rest[..end];
+        let after = &rest[end + 4..]; // skip "\n---"
+        let body = after.strip_prefix("\r\n").or_else(|| after.strip_prefix('\n')).unwrap_or(after);
+        let fm: OpenCodeFrontmatter = serde_yaml::from_str(yaml).unwrap_or_default();
+        (fm, body)
+    }
+
+    /// Scan a single directory for `*.md` rule files.
+    fn scan_md_dir(
+        &self,
+        scan_dir: &Path,
+        repo_dir: &Path,
+        plugin_name: &str,
+        results: &mut Vec<PluginSkillEntry>,
+        seen_names: &mut HashSet<String>,
+    ) {
+        let entries = match std::fs::read_dir(scan_dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let stem = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(?path, %e, "failed to read opencode rule file");
+                    continue;
+                },
+            };
+            let (fm, body) = Self::parse_frontmatter(&content);
+            let skill_name = fm.name.unwrap_or_else(|| stem.clone());
+            let namespaced_name = format!("{plugin_name}:{skill_name}");
+            if !seen_names.insert(namespaced_name.clone()) {
+                continue;
+            }
+            let description = fm.description.unwrap_or_else(|| {
+                // Fall back to first non-empty, non-heading line of body.
+                body.lines()
+                    .find(|l| {
+                        let t = l.trim();
+                        !t.is_empty() && !t.starts_with('#')
+                    })
+                    .unwrap_or("")
+                    .trim()
+                    .chars()
+                    .take(120)
+                    .collect()
+            });
+            let source_file = path
+                .strip_prefix(repo_dir)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string());
+            let meta = SkillMetadata {
+                name: namespaced_name,
+                description,
+                homepage: None,
+                license: None,
+                compatibility: if fm.always_apply {
+                    Some("alwaysApply".to_string())
+                } else {
+                    None
+                },
+                allowed_tools: Vec::new(),
+                requires: SkillRequirements::default(),
+                path: path.parent().unwrap_or(scan_dir).to_path_buf(),
+                source: Some(SkillSource::Plugin),
+                dockerfile: None,
+            };
+            results.push(PluginSkillEntry {
+                metadata: meta,
+                body: body.to_string(),
+                display_name: Some(Self::slug_to_display_name(&stem)),
+                author: None,
+                source_file,
+            });
+        }
+    }
+}
+
+impl FormatAdapter for OpenCodeAdapter {
+    fn detect(&self, repo_dir: &Path) -> bool {
+        repo_dir.join(".opencode").is_dir()
+    }
+
+    fn scan_skills(&self, repo_dir: &Path) -> anyhow::Result<Vec<PluginSkillEntry>> {
+        let opencode_dir = repo_dir.join(".opencode");
+        // Derive a plugin name from the repo directory name.
+        let plugin_name = repo_dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("opencode");
+
+        let mut results = Vec::new();
+        let mut seen_names = HashSet::new();
+
+        // Prefer `.opencode/rules/` subdirectory; fall back to `.opencode/` itself.
+        let rules_dir = opencode_dir.join("rules");
+        if rules_dir.is_dir() {
+            self.scan_md_dir(&rules_dir, repo_dir, plugin_name, &mut results, &mut seen_names);
+        } else {
+            self.scan_md_dir(&opencode_dir, repo_dir, plugin_name, &mut results, &mut seen_names);
+        }
+
+        Ok(results)
+    }
+}
+
 // ── Format detection ────────────────────────────────────────────────────────
 
 /// All known format adapters, in detection priority order.
 fn adapters() -> Vec<(PluginFormat, Box<dyn FormatAdapter>)> {
-    vec![(PluginFormat::ClaudeCode, Box::new(ClaudeCodeAdapter))]
+    vec![
+        (PluginFormat::ClaudeCode, Box::new(ClaudeCodeAdapter)),
+        (PluginFormat::OpenCode, Box::new(OpenCodeAdapter)),
+    ]
 }
 
 /// Detect the format of a repository.
@@ -458,6 +631,7 @@ pub fn scan_with_adapter(
         PluginFormat::Skill => None, // handled by existing scan_repo_skills
         PluginFormat::ClaudeCode => Some(ClaudeCodeAdapter.scan_skills(repo_dir)),
         PluginFormat::Codex => None, // not yet implemented
+        PluginFormat::OpenCode => Some(OpenCodeAdapter.scan_skills(repo_dir)),
         PluginFormat::Generic => None,
     }
 }
@@ -492,6 +666,7 @@ mod tests {
         assert_eq!(PluginFormat::Skill.to_string(), "skill");
         assert_eq!(PluginFormat::ClaudeCode.to_string(), "claude_code");
         assert_eq!(PluginFormat::Codex.to_string(), "codex");
+        assert_eq!(PluginFormat::OpenCode.to_string(), "opencode");
         assert_eq!(PluginFormat::Generic.to_string(), "generic");
     }
 
@@ -817,5 +992,165 @@ Read and write PDF documents.
         let skills = result.unwrap().unwrap();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].metadata.name, "my-plugin:do-thing");
+    }
+
+    // ── OpenCode adapter tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_plugin_format_opencode_display() {
+        assert_eq!(PluginFormat::OpenCode.to_string(), "opencode");
+    }
+
+    #[test]
+    fn test_detect_opencode_format() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".opencode")).unwrap();
+        assert_eq!(detect_format(tmp.path()), PluginFormat::OpenCode);
+    }
+
+    #[test]
+    fn test_opencode_adapter_not_detected_without_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("README.md"), "hello").unwrap();
+        assert_ne!(detect_format(tmp.path()), PluginFormat::OpenCode);
+    }
+
+    #[test]
+    fn test_opencode_adapter_scan_rules_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        std::fs::write(
+            root.join(".opencode/rules/rust-idioms.md"),
+            "---\nname: rust-idioms\ndescription: Rust idioms to follow\nalwaysApply: true\n---\n\nAlways prefer iterators over loops.",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".opencode/rules/testing.md"),
+            "---\ndescription: Testing guidelines\n---\n\nWrite tests for all public functions.",
+        )
+        .unwrap();
+
+        let adapter = OpenCodeAdapter;
+        assert!(adapter.detect(root));
+
+        let mut results = adapter.scan_skills(root).unwrap();
+        results.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
+        assert_eq!(results.len(), 2);
+
+        let rust_idioms = results
+            .iter()
+            .find(|e| e.metadata.name.ends_with(":rust-idioms"))
+            .unwrap();
+        assert_eq!(rust_idioms.metadata.description, "Rust idioms to follow");
+        assert_eq!(rust_idioms.metadata.compatibility.as_deref(), Some("alwaysApply"));
+        assert!(rust_idioms.body.contains("prefer iterators"));
+        assert_eq!(rust_idioms.display_name.as_deref(), Some("Rust Idioms"));
+        assert_eq!(
+            rust_idioms.source_file.as_deref(),
+            Some(".opencode/rules/rust-idioms.md")
+        );
+        assert_eq!(rust_idioms.metadata.source, Some(SkillSource::Plugin));
+
+        let testing = results
+            .iter()
+            .find(|e| e.metadata.name.ends_with(":testing"))
+            .unwrap();
+        assert_eq!(testing.metadata.description, "Testing guidelines");
+        assert!(testing.metadata.compatibility.is_none());
+        assert!(testing.body.contains("tests for all public functions"));
+    }
+
+    #[test]
+    fn test_opencode_adapter_scan_fallback_to_opencode_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // No .opencode/rules/ – files sit directly in .opencode/
+        std::fs::create_dir_all(root.join(".opencode")).unwrap();
+        std::fs::write(
+            root.join(".opencode/commit-style.md"),
+            "Use conventional commits.",
+        )
+        .unwrap();
+
+        let adapter = OpenCodeAdapter;
+        assert!(adapter.detect(root));
+
+        let results = adapter.scan_skills(root).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].metadata.name.ends_with(":commit-style"));
+        assert_eq!(results[0].display_name.as_deref(), Some("Commit Style"));
+        assert_eq!(
+            results[0].source_file.as_deref(),
+            Some(".opencode/commit-style.md")
+        );
+    }
+
+    #[test]
+    fn test_opencode_adapter_description_fallback_to_body() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        // No frontmatter at all – description should come from first body line.
+        std::fs::write(
+            root.join(".opencode/rules/no-frontmatter.md"),
+            "This is the first line used as description.\n\nMore content.",
+        )
+        .unwrap();
+
+        let adapter = OpenCodeAdapter;
+        let results = adapter.scan_skills(root).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].metadata.description,
+            "This is the first line used as description."
+        );
+    }
+
+    #[test]
+    fn test_opencode_adapter_skips_non_md_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        std::fs::write(root.join(".opencode/rules/rule.md"), "A rule.").unwrap();
+        std::fs::write(root.join(".opencode/rules/config.json"), "{}").unwrap();
+        std::fs::write(root.join(".opencode/rules/readme.txt"), "notes").unwrap();
+
+        let adapter = OpenCodeAdapter;
+        let results = adapter.scan_skills(root).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].metadata.name.ends_with(":rule"));
+    }
+
+    #[test]
+    fn test_opencode_adapter_empty_rules_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+
+        let adapter = OpenCodeAdapter;
+        assert!(adapter.detect(root));
+        let results = adapter.scan_skills(root).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_scan_with_adapter_opencode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        std::fs::write(root.join(".opencode/rules/style.md"), "Follow style guide.").unwrap();
+
+        let result = scan_with_adapter(root, PluginFormat::OpenCode);
+        assert!(result.is_some());
+        let skills = result.unwrap().unwrap();
+        assert_eq!(skills.len(), 1);
+        assert!(skills[0].metadata.name.ends_with(":style"));
     }
 }
