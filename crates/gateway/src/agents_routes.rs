@@ -170,7 +170,14 @@ mod inner {
                 PlanName::SecurityAudit => OrchestrationPlan::security_audit(),
             };
             let result = execute_plan(&state.gateway.orchestrator, &plan, &req.task).await;
-            return Json(serde_json::to_value(&result).unwrap_or_default()).into_response();
+            return match serde_json::to_value(&result) {
+                Ok(val) => Json(val).into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response(),
+            };
         }
 
         // Single-role execution.
@@ -191,7 +198,14 @@ mod inner {
             .route_and_record(&req.task, &exclude)
             .await
         {
-            Some(result) => Json(serde_json::to_value(&result).unwrap_or_default()).into_response(),
+            Some(result) => match serde_json::to_value(&result) {
+                Ok(val) => Json(val).into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response(),
+            },
             None => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "no eligible agent available" })),

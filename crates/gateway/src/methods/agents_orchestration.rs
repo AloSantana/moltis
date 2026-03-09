@@ -151,12 +151,19 @@ pub(super) fn register(reg: &mut super::MethodRegistry) {
                     .orchestrator
                     .route_and_record(&task, &exclude)
                     .await
-                    .map(|r| serde_json::to_value(&r).unwrap_or_default())
                     .ok_or_else(|| {
                         moltis_protocol::ErrorShape::new(
                             error_codes::UNAVAILABLE,
                             "no eligible agent available",
                         )
+                    })
+                    .and_then(|r| {
+                        serde_json::to_value(&r).map_err(|e| {
+                            moltis_protocol::ErrorShape::new(
+                                error_codes::INTERNAL,
+                                e.to_string(),
+                            )
+                        })
                     })
             })
         }),
