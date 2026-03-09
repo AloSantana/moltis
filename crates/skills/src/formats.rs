@@ -446,8 +446,9 @@ struct OpenCodeFrontmatter {
 ///
 /// OpenCode stores rules in `.opencode/rules/*.md` files. Each file may have
 /// YAML frontmatter with `name`, `description`, and `alwaysApply` fields.
-/// Falls back to scanning all `*.md` files directly inside `.opencode/` when
-/// no `rules/` subdirectory is present.
+/// The canonical layout requires a `rules/` subdirectory; the older pattern
+/// of placing `.md` files directly inside `.opencode/` is no longer supported
+/// to avoid ambiguity with the OpenCode config directory.
 pub struct OpenCodeAdapter;
 
 impl OpenCodeAdapter {
@@ -573,11 +574,15 @@ impl OpenCodeAdapter {
 
 impl FormatAdapter for OpenCodeAdapter {
     fn detect(&self, repo_dir: &Path) -> bool {
-        repo_dir.join(".opencode").is_dir()
+        // Only detect repos that use the canonical `.opencode/rules/` layout.
+        // Repos that only have loose `.md` files directly inside `.opencode/`
+        // (the old, ambiguous layout) are intentionally not detected here so
+        // that the two formats no longer overlap and cause instability.
+        repo_dir.join(".opencode/rules").is_dir()
     }
 
     fn scan_skills(&self, repo_dir: &Path) -> anyhow::Result<Vec<PluginSkillEntry>> {
-        let opencode_dir = repo_dir.join(".opencode");
+        let rules_dir = repo_dir.join(".opencode/rules");
         // Derive a plugin name from the repo directory name.
         let plugin_name = repo_dir
             .file_name()
@@ -587,13 +592,8 @@ impl FormatAdapter for OpenCodeAdapter {
         let mut results = Vec::new();
         let mut seen_names = HashSet::new();
 
-        // Prefer `.opencode/rules/` subdirectory; fall back to `.opencode/` itself.
-        let rules_dir = opencode_dir.join("rules");
-        if rules_dir.is_dir() {
-            self.scan_md_dir(&rules_dir, repo_dir, plugin_name, &mut results, &mut seen_names);
-        } else {
-            self.scan_md_dir(&opencode_dir, repo_dir, plugin_name, &mut results, &mut seen_names);
-        }
+        // Scan exclusively from `.opencode/rules/` — the only supported layout.
+        self.scan_md_dir(&rules_dir, repo_dir, plugin_name, &mut results, &mut seen_names);
 
         Ok(results)
     }
@@ -1008,8 +1008,19 @@ Read and write PDF documents.
     #[test]
     fn test_detect_opencode_format() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".opencode")).unwrap();
+        // Requires a `rules/` subdirectory — bare `.opencode/` is not enough.
+        std::fs::create_dir_all(tmp.path().join(".opencode/rules")).unwrap();
         assert_eq!(detect_format(tmp.path()), PluginFormat::OpenCode);
+    }
+
+    #[test]
+    fn test_detect_opencode_bare_dir_not_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        // `.opencode/` without `rules/` should NOT be detected as OpenCode to
+        // avoid the two-paths overlap that caused instability.
+        std::fs::create_dir_all(tmp.path().join(".opencode")).unwrap();
+        std::fs::write(tmp.path().join(".opencode/commit-style.md"), "rules").unwrap();
+        assert_ne!(detect_format(tmp.path()), PluginFormat::OpenCode);
     }
 
     #[test]
@@ -1067,11 +1078,14 @@ Read and write PDF documents.
     }
 
     #[test]
-    fn test_opencode_adapter_scan_fallback_to_opencode_dir() {
+    fn test_opencode_adapter_scan_fallback_removed() {
+        // The old fallback that scanned `.md` files directly inside `.opencode/`
+        // (without a `rules/` subdirectory) has been removed. Repos using that
+        // layout are no longer detected as OpenCode to eliminate the two-paths
+        // overlap that caused instability.
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
-        // No .opencode/rules/ – files sit directly in .opencode/
         std::fs::create_dir_all(root.join(".opencode")).unwrap();
         std::fs::write(
             root.join(".opencode/commit-style.md"),
@@ -1080,16 +1094,8 @@ Read and write PDF documents.
         .unwrap();
 
         let adapter = OpenCodeAdapter;
-        assert!(adapter.detect(root));
-
-        let results = adapter.scan_skills(root).unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(results[0].metadata.name.ends_with(":commit-style"));
-        assert_eq!(results[0].display_name.as_deref(), Some("Commit Style"));
-        assert_eq!(
-            results[0].source_file.as_deref(),
-            Some(".opencode/commit-style.md")
-        );
+        // No `rules/` directory → not detected as OpenCode.
+        assert!(!adapter.detect(root));
     }
 
     #[test]
