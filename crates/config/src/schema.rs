@@ -224,12 +224,57 @@ pub struct AgentsConfig {
     /// Named spawn presets.
     #[serde(default)]
     pub presets: HashMap<String, AgentPreset>,
+    /// Multi-agent orchestration settings.
+    #[serde(default)]
+    pub orchestration: AgentOrchestrationConfig,
 }
 
 impl AgentsConfig {
     /// Return a preset by name.
     pub fn get_preset(&self, name: &str) -> Option<&AgentPreset> {
         self.presets.get(name)
+    }
+}
+
+/// Routing strategy for the orchestration layer.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OrchestrationRoutingStrategy {
+    /// Select agent based on keyword matching only.
+    Keyword,
+    /// Select agent based on inferred intent (future: LLM-assisted).
+    Intent,
+    /// Combine keyword matching with historical performance scores.
+    #[default]
+    Hybrid,
+}
+
+/// Configuration for the multi-agent orchestration system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentOrchestrationConfig {
+    /// Enable or disable the orchestration layer.
+    pub enabled: bool,
+    /// Routing strategy used to select the best agent for a task.
+    pub routing_strategy: OrchestrationRoutingStrategy,
+    /// Maximum number of agents to run concurrently in a parallel wave.
+    pub max_concurrent_agents: usize,
+    /// Default timeout (seconds) for a single agent execution within a plan.
+    pub agent_timeout_secs: u64,
+    /// Agent roles to disable (by snake_case name, e.g. `"docs_master"`).
+    #[serde(default)]
+    pub disabled_roles: Vec<String>,
+}
+
+impl Default for AgentOrchestrationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            routing_strategy: OrchestrationRoutingStrategy::default(),
+            max_concurrent_agents: 4,
+            agent_timeout_secs: 120,
+            disabled_roles: Vec::new(),
+        }
     }
 }
 

@@ -101,9 +101,11 @@ tempfile = { workspace = true }
 
 [features]
 agent = ["moltis-gateway/agent", "moltis-web?/agent"]
+agents-orchestration = ["moltis-gateway/agents-orchestration"]
 caldav = ["moltis-gateway/caldav"]
 default = [
   "agent",
+  "agents-orchestration",
   "caldav",
   "code-splitter",
   "file-watcher",

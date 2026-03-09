@@ -11,6 +11,8 @@
 //! invoked through method handlers registered in `methods.rs`.
 
 pub mod agent_persona;
+#[cfg(feature = "agents-orchestration")]
+pub mod agents_routes;
 pub mod approval;
 pub mod auth;
 pub mod auth_middleware;

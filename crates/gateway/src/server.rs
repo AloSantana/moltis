@@ -745,6 +745,12 @@ pub fn build_gateway_base(
         );
     }
 
+    #[cfg(feature = "agents-orchestration")]
+    {
+        router = router
+            .nest("/api/agents", crate::agents_routes::agents_router());
+    }
+
     (router, app_state)
 }
 
@@ -807,6 +813,12 @@ pub fn build_gateway_base(
             get(crate::graphql_routes::graphql_get_handler)
                 .post(crate::graphql_routes::graphql_handler),
         );
+    }
+
+    #[cfg(feature = "agents-orchestration")]
+    {
+        router = router
+            .nest("/api/agents", crate::agents_routes::agents_router());
     }
 
     (router, app_state)
