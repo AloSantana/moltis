@@ -1016,11 +1016,21 @@ Read and write PDF documents.
     #[test]
     fn test_detect_opencode_bare_dir_not_detected() {
         let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
         // `.opencode/` without `rules/` should NOT be detected as OpenCode to
         // avoid the two-paths overlap that caused instability.
-        std::fs::create_dir_all(tmp.path().join(".opencode")).unwrap();
-        std::fs::write(tmp.path().join(".opencode/commit-style.md"), "rules").unwrap();
-        assert_ne!(detect_format(tmp.path()), PluginFormat::OpenCode);
+        std::fs::create_dir_all(root.join(".opencode")).unwrap();
+        std::fs::write(root.join(".opencode/commit-style.md"), "Use conventional commits.").unwrap();
+
+        let adapter = OpenCodeAdapter;
+        // detect() must return false — no `rules/` subdir.
+        assert!(!adapter.detect(root));
+        assert_ne!(detect_format(root), PluginFormat::OpenCode);
+
+        // Even if scan_skills is called directly, no skills should surface
+        // from the bare `.opencode/` directory.
+        let results = adapter.scan_skills(root).unwrap();
+        assert!(results.is_empty());
     }
 
     #[test]
