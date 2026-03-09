@@ -26,8 +26,11 @@ pub enum PluginFormat {
     ClaudeCode,
     /// Codex plugin: `codex-plugin.json` or `.codex/plugin.json` (future).
     Codex,
-    /// OpenCode plugin: `.opencode/rules/*.md` rule files (oh-my-opencode compatible).
-    OpenCode,
+    /// GSD-OpenCode plugin: `.opencode/rules/gsd-*.md` files (rokicool/gsd-opencode compatible).
+    ///
+    /// Intentionally distinct from generic OpenCode repos so that plain `opencode` projects are
+    /// never touched. Detection requires at least one `gsd-*.md` rule file.
+    GsdOpenCode,
     /// Fallback: `.md` files treated as generic skill prompts.
     Generic,
 }
@@ -38,7 +41,7 @@ impl std::fmt::Display for PluginFormat {
             Self::Skill => write!(f, "skill"),
             Self::ClaudeCode => write!(f, "claude_code"),
             Self::Codex => write!(f, "codex"),
-            Self::OpenCode => write!(f, "opencode"),
+            Self::GsdOpenCode => write!(f, "gsd_opencode"),
             Self::Generic => write!(f, "generic"),
         }
     }
@@ -428,11 +431,11 @@ impl FormatAdapter for ClaudeCodeAdapter {
     }
 }
 
-// ── OpenCode adapter ─────────────────────────────────────────────────────────
+// ── GSD-OpenCode adapter ─────────────────────────────────────────────────────
 
-/// OpenCode YAML frontmatter for `.opencode/rules/*.md` files.
+/// GSD-OpenCode YAML frontmatter for `.opencode/rules/gsd-*.md` files.
 #[derive(Debug, Default, Deserialize)]
-struct OpenCodeFrontmatter {
+struct GsdOpenCodeFrontmatter {
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
@@ -442,16 +445,15 @@ struct OpenCodeFrontmatter {
     always_apply: bool,
 }
 
-/// Adapter for OpenCode rule repos (oh-my-opencode compatible).
+/// Adapter for GSD-OpenCode rule repos (rokicool/gsd-opencode compatible).
 ///
-/// OpenCode stores rules in `.opencode/rules/*.md` files. Each file may have
-/// YAML frontmatter with `name`, `description`, and `alwaysApply` fields.
-/// The canonical layout requires a `rules/` subdirectory; the older pattern
-/// of placing `.md` files directly inside `.opencode/` is no longer supported
-/// to avoid ambiguity with the OpenCode config directory.
-pub struct OpenCodeAdapter;
+/// GSD-OpenCode installs its workflow commands as `.md` files with a `gsd-` name
+/// prefix inside `.opencode/rules/` (e.g. `gsd-new-project.md`, `gsd-plan-phase.md`).
+/// The adapter only activates when at least one such `gsd-*.md` file is present, so
+/// plain `opencode` projects are never touched.
+pub struct GsdOpenCodeAdapter;
 
-impl OpenCodeAdapter {
+impl GsdOpenCodeAdapter {
     /// Convert a filename stem to a display name.
     ///
     /// Splits on both `-` and `_` so that both kebab-case (`rust-idioms`) and
@@ -474,19 +476,19 @@ impl OpenCodeAdapter {
     ///
     /// Returns `(frontmatter, body)` where `body` is the markdown content
     /// without the frontmatter block.
-    fn parse_frontmatter(content: &str) -> (OpenCodeFrontmatter, &str) {
+    fn parse_frontmatter(content: &str) -> (GsdOpenCodeFrontmatter, &str) {
         let Some(rest) = content.strip_prefix("---") else {
-            return (OpenCodeFrontmatter::default(), content);
+            return (GsdOpenCodeFrontmatter::default(), content);
         };
         // Accept `---\r\n` or `---\n`
         let rest = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')).unwrap_or(rest);
         let Some(end) = rest.find("\n---") else {
-            return (OpenCodeFrontmatter::default(), content);
+            return (GsdOpenCodeFrontmatter::default(), content);
         };
         let yaml = &rest[..end];
         let after = &rest[end + 4..]; // skip "\n---"
         let body = after.strip_prefix("\r\n").or_else(|| after.strip_prefix('\n')).unwrap_or(after);
-        let fm: OpenCodeFrontmatter = serde_yaml::from_str(yaml).unwrap_or_default();
+        let fm: GsdOpenCodeFrontmatter = serde_yaml::from_str(yaml).unwrap_or_default();
         (fm, body)
     }
 
@@ -518,7 +520,7 @@ impl OpenCodeAdapter {
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(e) => {
-                    tracing::warn!(?path, %e, "failed to read opencode rule file");
+                    tracing::warn!(?path, %e, "failed to read gsd-opencode rule file");
                     continue;
                 },
             };
@@ -572,13 +574,27 @@ impl OpenCodeAdapter {
     }
 }
 
-impl FormatAdapter for OpenCodeAdapter {
+impl FormatAdapter for GsdOpenCodeAdapter {
     fn detect(&self, repo_dir: &Path) -> bool {
-        // Only detect repos that use the canonical `.opencode/rules/` layout.
-        // Repos that only have loose `.md` files directly inside `.opencode/`
-        // (the old, ambiguous layout) are intentionally not detected here so
-        // that the two formats no longer overlap and cause instability.
-        repo_dir.join(".opencode/rules").is_dir()
+        // Only activate for GSD-OpenCode repos (rokicool/gsd-opencode).
+        // GSD-OpenCode always installs files with a `gsd-` name prefix into
+        // `.opencode/rules/` (e.g. `gsd-new-project.md`, `gsd-plan-phase.md`).
+        // Requiring at least one such file prevents plain `opencode` projects
+        // (which also use `.opencode/rules/`) from being detected here.
+        let rules_dir = repo_dir.join(".opencode/rules");
+        if !rules_dir.is_dir() {
+            return false;
+        }
+        std::fs::read_dir(&rules_dir).ok().is_some_and(|mut entries| {
+            entries.any(|e| {
+                e.ok().is_some_and(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with("gsd-") && name.ends_with(".md"))
+                })
+            })
+        })
     }
 
     fn scan_skills(&self, repo_dir: &Path) -> anyhow::Result<Vec<PluginSkillEntry>> {
@@ -587,12 +603,12 @@ impl FormatAdapter for OpenCodeAdapter {
         let plugin_name = repo_dir
             .file_name()
             .and_then(|s| s.to_str())
-            .unwrap_or("opencode");
+            .unwrap_or("gsd-opencode");
 
         let mut results = Vec::new();
         let mut seen_names = HashSet::new();
 
-        // Scan exclusively from `.opencode/rules/` — the only supported layout.
+        // Scan all `.md` rule files from `.opencode/rules/`.
         self.scan_md_dir(&rules_dir, repo_dir, plugin_name, &mut results, &mut seen_names);
 
         Ok(results)
@@ -605,7 +621,7 @@ impl FormatAdapter for OpenCodeAdapter {
 fn adapters() -> Vec<(PluginFormat, Box<dyn FormatAdapter>)> {
     vec![
         (PluginFormat::ClaudeCode, Box::new(ClaudeCodeAdapter)),
-        (PluginFormat::OpenCode, Box::new(OpenCodeAdapter)),
+        (PluginFormat::GsdOpenCode, Box::new(GsdOpenCodeAdapter)),
     ]
 }
 
@@ -635,7 +651,7 @@ pub fn scan_with_adapter(
         PluginFormat::Skill => None, // handled by existing scan_repo_skills
         PluginFormat::ClaudeCode => Some(ClaudeCodeAdapter.scan_skills(repo_dir)),
         PluginFormat::Codex => None, // not yet implemented
-        PluginFormat::OpenCode => Some(OpenCodeAdapter.scan_skills(repo_dir)),
+        PluginFormat::GsdOpenCode => Some(GsdOpenCodeAdapter.scan_skills(repo_dir)),
         PluginFormat::Generic => None,
     }
 }
@@ -670,7 +686,7 @@ mod tests {
         assert_eq!(PluginFormat::Skill.to_string(), "skill");
         assert_eq!(PluginFormat::ClaudeCode.to_string(), "claude_code");
         assert_eq!(PluginFormat::Codex.to_string(), "codex");
-        assert_eq!(PluginFormat::OpenCode.to_string(), "opencode");
+        assert_eq!(PluginFormat::GsdOpenCode.to_string(), "gsd_opencode");
         assert_eq!(PluginFormat::Generic.to_string(), "generic");
     }
 
@@ -998,130 +1014,136 @@ Read and write PDF documents.
         assert_eq!(skills[0].metadata.name, "my-plugin:do-thing");
     }
 
-    // ── OpenCode adapter tests ────────────────────────────────────────────────
+    // ── GSD-OpenCode adapter tests ────────────────────────────────────────────
 
     #[test]
-    fn test_plugin_format_opencode_display() {
-        assert_eq!(PluginFormat::OpenCode.to_string(), "opencode");
+    fn test_plugin_format_gsd_opencode_display() {
+        assert_eq!(PluginFormat::GsdOpenCode.to_string(), "gsd_opencode");
     }
 
     #[test]
-    fn test_detect_opencode_format() {
-        let tmp = tempfile::tempdir().unwrap();
-        // Requires a `rules/` subdirectory — bare `.opencode/` is not enough.
-        std::fs::create_dir_all(tmp.path().join(".opencode/rules")).unwrap();
-        assert_eq!(detect_format(tmp.path()), PluginFormat::OpenCode);
-    }
-
-    #[test]
-    fn test_detect_opencode_bare_dir_not_detected() {
+    fn test_detect_gsd_opencode_format() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        // `.opencode/` without `rules/` should NOT be detected as OpenCode to
-        // avoid the two-paths overlap that caused instability.
+        // Requires `.opencode/rules/` AND at least one `gsd-*.md` file.
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        std::fs::write(root.join(".opencode/rules/gsd-help.md"), "GSD help.").unwrap();
+        assert_eq!(detect_format(root), PluginFormat::GsdOpenCode);
+    }
+
+    #[test]
+    fn test_detect_plain_opencode_not_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // A plain opencode project has `.opencode/rules/*.md` without `gsd-` prefix —
+        // it must NOT be detected as GsdOpenCode so native `opencode` users are unaffected.
+        std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
+        std::fs::write(root.join(".opencode/rules/my-rules.md"), "Some rules.").unwrap();
+        assert_ne!(detect_format(root), PluginFormat::GsdOpenCode);
+    }
+
+    #[test]
+    fn test_detect_gsd_opencode_bare_dir_not_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // `.opencode/` without `rules/` should NOT be detected at all.
         std::fs::create_dir_all(root.join(".opencode")).unwrap();
         std::fs::write(root.join(".opencode/commit-style.md"), "Use conventional commits.").unwrap();
 
-        let adapter = OpenCodeAdapter;
-        // detect() must return false — no `rules/` subdir.
+        let adapter = GsdOpenCodeAdapter;
         assert!(!adapter.detect(root));
-        assert_ne!(detect_format(root), PluginFormat::OpenCode);
+        assert_ne!(detect_format(root), PluginFormat::GsdOpenCode);
 
-        // Even if scan_skills is called directly, no skills should surface
-        // from the bare `.opencode/` directory.
+        // Even if scan_skills is called directly, no skills should surface.
         let results = adapter.scan_skills(root).unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
-    fn test_opencode_adapter_not_detected_without_dir() {
+    fn test_gsd_opencode_adapter_not_detected_without_dir() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("README.md"), "hello").unwrap();
-        assert_ne!(detect_format(tmp.path()), PluginFormat::OpenCode);
+        assert_ne!(detect_format(tmp.path()), PluginFormat::GsdOpenCode);
     }
 
     #[test]
-    fn test_opencode_adapter_scan_rules_dir() {
+    fn test_gsd_opencode_adapter_scan_rules_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
         std::fs::write(
-            root.join(".opencode/rules/rust-idioms.md"),
-            "---\nname: rust-idioms\ndescription: Rust idioms to follow\nalwaysApply: true\n---\n\nAlways prefer iterators over loops.",
+            root.join(".opencode/rules/gsd-new-project.md"),
+            "---\nname: gsd-new-project\ndescription: Initialize a new GSD project\nalwaysApply: false\n---\n\nAsk the user what they want to build.",
         )
         .unwrap();
         std::fs::write(
-            root.join(".opencode/rules/testing.md"),
-            "---\ndescription: Testing guidelines\n---\n\nWrite tests for all public functions.",
+            root.join(".opencode/rules/gsd-plan-phase.md"),
+            "---\ndescription: Plan a phase\n---\n\nResearch and create atomic task plans.",
         )
         .unwrap();
 
-        let adapter = OpenCodeAdapter;
+        let adapter = GsdOpenCodeAdapter;
         assert!(adapter.detect(root));
 
         let mut results = adapter.scan_skills(root).unwrap();
         results.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
         assert_eq!(results.len(), 2);
 
-        let rust_idioms = results
+        let new_proj = results
             .iter()
-            .find(|e| e.metadata.name.ends_with(":rust-idioms"))
+            .find(|e| e.metadata.name.ends_with(":gsd-new-project"))
             .unwrap();
-        assert_eq!(rust_idioms.metadata.description, "Rust idioms to follow");
-        assert_eq!(rust_idioms.metadata.compatibility.as_deref(), Some("alwaysApply"));
-        assert!(rust_idioms.body.contains("prefer iterators"));
-        assert_eq!(rust_idioms.display_name.as_deref(), Some("Rust Idioms"));
+        assert_eq!(new_proj.metadata.description, "Initialize a new GSD project");
+        assert!(new_proj.body.contains("what they want to build"));
+        assert_eq!(new_proj.display_name.as_deref(), Some("Gsd New Project"));
         assert_eq!(
-            rust_idioms.source_file.as_deref(),
-            Some(".opencode/rules/rust-idioms.md")
+            new_proj.source_file.as_deref(),
+            Some(".opencode/rules/gsd-new-project.md")
         );
-        assert_eq!(rust_idioms.metadata.source, Some(SkillSource::Plugin));
+        assert_eq!(new_proj.metadata.source, Some(SkillSource::Plugin));
 
-        let testing = results
+        let plan_phase = results
             .iter()
-            .find(|e| e.metadata.name.ends_with(":testing"))
+            .find(|e| e.metadata.name.ends_with(":gsd-plan-phase"))
             .unwrap();
-        assert_eq!(testing.metadata.description, "Testing guidelines");
-        assert!(testing.metadata.compatibility.is_none());
-        assert!(testing.body.contains("tests for all public functions"));
+        assert_eq!(plan_phase.metadata.description, "Plan a phase");
+        assert!(plan_phase.body.contains("atomic task plans"));
     }
 
     #[test]
-    fn test_opencode_adapter_scan_fallback_removed() {
+    fn test_gsd_opencode_adapter_scan_fallback_removed() {
         // The old fallback that scanned `.md` files directly inside `.opencode/`
-        // (without a `rules/` subdirectory) has been removed. Repos using that
-        // layout are no longer detected as OpenCode to eliminate the two-paths
-        // overlap that caused instability.
+        // (without a `rules/` subdirectory) has been removed.
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode")).unwrap();
         std::fs::write(
-            root.join(".opencode/commit-style.md"),
-            "Use conventional commits.",
+            root.join(".opencode/gsd-help.md"),
+            "GSD help.",
         )
         .unwrap();
 
-        let adapter = OpenCodeAdapter;
-        // No `rules/` directory → not detected as OpenCode.
+        let adapter = GsdOpenCodeAdapter;
+        // No `rules/` directory → not detected.
         assert!(!adapter.detect(root));
     }
 
     #[test]
-    fn test_opencode_adapter_description_fallback_to_body() {
+    fn test_gsd_opencode_adapter_description_fallback_to_body() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
         // No frontmatter at all – description should come from first body line.
         std::fs::write(
-            root.join(".opencode/rules/no-frontmatter.md"),
+            root.join(".opencode/rules/gsd-no-frontmatter.md"),
             "This is the first line used as description.\n\nMore content.",
         )
         .unwrap();
 
-        let adapter = OpenCodeAdapter;
+        let adapter = GsdOpenCodeAdapter;
         let results = adapter.scan_skills(root).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(
@@ -1131,85 +1153,85 @@ Read and write PDF documents.
     }
 
     #[test]
-    fn test_opencode_adapter_skips_non_md_files() {
+    fn test_gsd_opencode_adapter_skips_non_md_files() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
-        std::fs::write(root.join(".opencode/rules/rule.md"), "A rule.").unwrap();
+        std::fs::write(root.join(".opencode/rules/gsd-rule.md"), "A GSD rule.").unwrap();
         std::fs::write(root.join(".opencode/rules/config.json"), "{}").unwrap();
         std::fs::write(root.join(".opencode/rules/readme.txt"), "notes").unwrap();
 
-        let adapter = OpenCodeAdapter;
+        let adapter = GsdOpenCodeAdapter;
         let results = adapter.scan_skills(root).unwrap();
         assert_eq!(results.len(), 1);
-        assert!(results[0].metadata.name.ends_with(":rule"));
+        assert!(results[0].metadata.name.ends_with(":gsd-rule"));
     }
 
     #[test]
-    fn test_opencode_adapter_empty_rules_dir() {
+    fn test_gsd_opencode_adapter_empty_rules_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
 
-        let adapter = OpenCodeAdapter;
-        assert!(adapter.detect(root));
+        let adapter = GsdOpenCodeAdapter;
+        // No gsd-*.md files → not detected.
+        assert!(!adapter.detect(root));
         let results = adapter.scan_skills(root).unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
-    fn test_scan_with_adapter_opencode() {
+    fn test_scan_with_adapter_gsd_opencode() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
-        std::fs::write(root.join(".opencode/rules/style.md"), "Follow style guide.").unwrap();
+        std::fs::write(root.join(".opencode/rules/gsd-help.md"), "GSD help guide.").unwrap();
 
-        let result = scan_with_adapter(root, PluginFormat::OpenCode);
+        let result = scan_with_adapter(root, PluginFormat::GsdOpenCode);
         assert!(result.is_some());
         let skills = result.unwrap().unwrap();
         assert_eq!(skills.len(), 1);
-        assert!(skills[0].metadata.name.ends_with(":style"));
+        assert!(skills[0].metadata.name.ends_with(":gsd-help"));
     }
 
-    // ── Additional OpenCode / oh-my-opencode adapter tests ───────────────────
+    // ── Additional GSD-OpenCode adapter tests ─────────────────────────────────
 
     #[test]
-    fn test_opencode_slug_to_display_name_kebab() {
-        assert_eq!(OpenCodeAdapter::slug_to_display_name("rust-idioms"), "Rust Idioms");
-        assert_eq!(OpenCodeAdapter::slug_to_display_name("commit-style"), "Commit Style");
-        assert_eq!(OpenCodeAdapter::slug_to_display_name("single"), "Single");
-    }
-
-    #[test]
-    fn test_opencode_slug_to_display_name_snake_case() {
-        // oh-my-opencode repos sometimes use snake_case file names
-        assert_eq!(OpenCodeAdapter::slug_to_display_name("rust_idioms"), "Rust Idioms");
-        assert_eq!(OpenCodeAdapter::slug_to_display_name("code_review"), "Code Review");
+    fn test_gsd_opencode_slug_to_display_name_kebab() {
+        assert_eq!(GsdOpenCodeAdapter::slug_to_display_name("gsd-new-project"), "Gsd New Project");
+        assert_eq!(GsdOpenCodeAdapter::slug_to_display_name("gsd-plan-phase"), "Gsd Plan Phase");
+        assert_eq!(GsdOpenCodeAdapter::slug_to_display_name("single"), "Single");
     }
 
     #[test]
-    fn test_opencode_slug_to_display_name_mixed() {
+    fn test_gsd_opencode_slug_to_display_name_snake_case() {
+        assert_eq!(GsdOpenCodeAdapter::slug_to_display_name("gsd_help"), "Gsd Help");
+        assert_eq!(GsdOpenCodeAdapter::slug_to_display_name("code_review"), "Code Review");
+    }
+
+    #[test]
+    fn test_gsd_opencode_slug_to_display_name_mixed() {
         assert_eq!(
-            OpenCodeAdapter::slug_to_display_name("my-rust_rules"),
+            GsdOpenCodeAdapter::slug_to_display_name("my-rust_rules"),
             "My Rust Rules"
         );
     }
 
     #[test]
-    fn test_opencode_adapter_crlf_frontmatter() {
+    fn test_gsd_opencode_adapter_crlf_frontmatter() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
         // Simulate a Windows-style CRLF line-ending frontmatter block
         let content =
-            "---\r\nname: crlf-rule\r\ndescription: A CRLF rule\r\n---\r\n\r\nRule body here.";
-        std::fs::write(root.join(".opencode/rules/crlf-rule.md"), content).unwrap();
+            "---\r\nname: gsd-crlf-rule\r\ndescription: A CRLF rule\r\n---\r\n\r\nRule body here.";
+        std::fs::write(root.join(".opencode/rules/gsd-crlf-rule.md"), content).unwrap();
 
-        let adapter = OpenCodeAdapter;
+        let adapter = GsdOpenCodeAdapter;
         let results = adapter.scan_skills(root).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].metadata.description, "A CRLF rule");
@@ -1217,19 +1239,19 @@ Read and write PDF documents.
     }
 
     #[test]
-    fn test_opencode_adapter_name_override_from_frontmatter() {
+    fn test_gsd_opencode_adapter_name_override_from_frontmatter() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
         // The frontmatter `name` overrides the filename stem in the skill identifier
         std::fs::write(
-            root.join(".opencode/rules/file-stem.md"),
+            root.join(".opencode/rules/gsd-file-stem.md"),
             "---\nname: overridden-name\ndescription: Name comes from frontmatter\n---\n\nBody.",
         )
         .unwrap();
 
-        let adapter = OpenCodeAdapter;
+        let adapter = GsdOpenCodeAdapter;
         let results = adapter.scan_skills(root).unwrap();
         assert_eq!(results.len(), 1);
         // Skill name should use the frontmatter `name`, not the file stem
@@ -1239,28 +1261,28 @@ Read and write PDF documents.
             results[0].metadata.name
         );
         // Display name should still be derived from the file stem
-        assert_eq!(results[0].display_name.as_deref(), Some("File Stem"));
+        assert_eq!(results[0].display_name.as_deref(), Some("Gsd File Stem"));
     }
 
     #[test]
-    fn test_opencode_adapter_duplicate_name_deduplication() {
+    fn test_gsd_opencode_adapter_duplicate_name_deduplication() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
         std::fs::create_dir_all(root.join(".opencode/rules")).unwrap();
         // Two files with the same `name` in frontmatter — second should be skipped
         std::fs::write(
-            root.join(".opencode/rules/rule-a.md"),
+            root.join(".opencode/rules/gsd-rule-a.md"),
             "---\nname: shared-name\n---\n\nFirst rule.",
         )
         .unwrap();
         std::fs::write(
-            root.join(".opencode/rules/rule-b.md"),
+            root.join(".opencode/rules/gsd-rule-b.md"),
             "---\nname: shared-name\n---\n\nSecond rule (duplicate).",
         )
         .unwrap();
 
-        let adapter = OpenCodeAdapter;
+        let adapter = GsdOpenCodeAdapter;
         let results = adapter.scan_skills(root).unwrap();
         // Only one entry should survive deduplication
         assert_eq!(results.len(), 1);
