@@ -23,6 +23,9 @@ pub mod github_copilot;
 #[cfg(feature = "provider-kimi-code")]
 pub mod kimi_code;
 
+#[cfg(feature = "provider-gemini-cli")]
+pub mod gemini_code_assist;
+
 #[cfg(feature = "local-llm")]
 pub mod local_gguf;
 
@@ -1419,6 +1422,11 @@ impl ProviderRegistry {
             reg.register_kimi_code_providers(config, env_overrides);
         }
 
+        #[cfg(feature = "provider-gemini-cli")]
+        {
+            reg.register_gemini_code_assist_providers(config);
+        }
+
         // Local GGUF providers (no API key needed, model runs locally)
         #[cfg(feature = "local-llm")]
         {
@@ -1877,6 +1885,43 @@ impl ProviderRegistry {
                 ModelInfo {
                     id: model_id,
                     provider: "kimi-code".into(),
+                    display_name,
+                    created_at,
+                },
+                provider,
+            );
+        }
+    }
+
+    #[cfg(feature = "provider-gemini-cli")]
+    fn register_gemini_code_assist_providers(&mut self, config: &ProvidersConfig) {
+        if !config.is_enabled("gemini-code-assist") {
+            return;
+        }
+        if !gemini_code_assist::has_stored_tokens() {
+            return;
+        }
+
+        let preferred = configured_models_for_provider(config, "gemini-code-assist");
+        let discovered: Vec<DiscoveredModel> = gemini_code_assist::GEMINI_CODE_ASSIST_MODELS
+            .iter()
+            .map(|(id, name)| DiscoveredModel::new(*id, *name))
+            .collect();
+        let models = merge_preferred_and_discovered_models(preferred, discovered);
+
+        for model in models {
+            let (model_id, display_name, created_at) =
+                (model.id, model.display_name, model.created_at);
+            if self.has_provider_model("gemini-code-assist", &model_id) {
+                continue;
+            }
+            let provider = Arc::new(gemini_code_assist::GeminiCodeAssistProvider::new(
+                model_id.clone(),
+            ));
+            self.register(
+                ModelInfo {
+                    id: model_id,
+                    provider: "gemini-code-assist".into(),
                     display_name,
                     created_at,
                 },

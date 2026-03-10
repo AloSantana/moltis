@@ -120,6 +120,42 @@ models = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash"]
 
 Gemini supports native tool calling, vision/multimodal inputs, streaming, and automatic model discovery.
 
+### Gemini Code Assist (Gemini CLI OAuth)
+
+Gemini Code Assist authenticates via OAuth credentials written by the
+[Gemini CLI](https://github.com/google-gemini/gemini-cli).  No API key is
+required — Moltis reads `~/.gemini/oauth_credentials.json` automatically.
+
+**Setup:**
+
+1. Install the Gemini CLI:
+   ```bash
+   npm i -g @google/gemini-cli
+   ```
+2. Authenticate:
+   ```bash
+   gemini auth login
+   ```
+3. Moltis will automatically detect the credentials and offer Gemini Code
+   Assist models in the model picker.
+
+Alternatively, you can log in from Moltis directly:
+
+```bash
+moltis auth login --provider gemini-code-assist
+```
+
+```toml
+[providers.gemini-code-assist]
+enabled = true
+# models = ["gemini-2.5-pro-preview-05-06"]  # optionally pin a model
+```
+
+```admonish info
+Requires an active Google account with Gemini access.  Personal use is
+covered by the [Gemini API free tier](https://ai.google.dev/pricing).
+```
+
 ### Anthropic
 
 1. Get an API key from [console.anthropic.com](https://console.anthropic.com/).
