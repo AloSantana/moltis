@@ -15,7 +15,7 @@ This guide covers installing Moltis on a local Linux machine so it acts as your 
   - [Build from Source](#7-build-from-source)
 - [First Run](#first-run)
 - [Configure a Provider](#configure-a-provider)
-- [oh-my-opencode / OpenCode Skills](#oh-my-opencode--opencode-skills)
+- [GSD-OpenCode / gsd-opencode Skills](#gsd-opencode--gsd-opencode-skills)
 - [Run as a System Service](#run-as-a-system-service)
 - [Connecting a DigitalOcean WebUI Hub](#connecting-a-digitalocean-webui-hub)
 - [Adding Remote Nodes](#adding-remote-nodes)
@@ -202,12 +202,17 @@ Restart Moltis — provider models appear automatically in the model picker.
 
 ---
 
-## oh-my-opencode / OpenCode Skills
+## GSD-OpenCode / gsd-opencode Skills
 
-Moltis supports skills from [oh-my-opencode](https://github.com/oh-my-opencode/oh-my-opencode)
-compatible repositories. These are repositories that store rules/prompts under `.opencode/rules/*.md`.
+Moltis supports skills from [gsd-opencode](https://github.com/AloSantana/gsd-opencode)
+compatible repositories. These are repositories that store rules/prompts under
+`.opencode/rules/gsd-*.md` (files with the `gsd-` prefix).
 
-### Installing an oh-my-opencode skill repo
+> **Note:** Native [opencode.ai](https://opencode.ai) projects that use
+> `.opencode/rules/` without the `gsd-` prefix are **not** claimed by Moltis —
+> they remain untouched so both tools can coexist in the same project.
+
+### Installing a gsd-opencode skill repo
 
 ```bash
 # Via the web UI
@@ -219,7 +224,7 @@ moltis skills install https://github.com/<user>/<repo>
 
 ### Rule file format
 
-Moltis reads `.opencode/rules/*.md` files. Each file may have optional YAML frontmatter:
+Moltis scans `.opencode/rules/gsd-*.md` files. Each file may have optional YAML frontmatter:
 
 ```markdown
 ---
@@ -238,8 +243,8 @@ Use `?` for error propagation instead of `.unwrap()`.
 | `description` | No | One-line summary shown in the skills list |
 | `alwaysApply` | No | When `true`, rule is always injected into the system prompt |
 
-If a `rules/` subdirectory is not present, Moltis falls back to scanning `*.md` files
-directly in the `.opencode/` directory.
+Detection requires at least one file named `gsd-*.md` inside `.opencode/rules/`. Once
+detected, all `*.md` files in that directory are loaded as skills.
 
 ### Importing from OpenClaw
 
@@ -437,11 +442,11 @@ You: Create a file called test.txt containing "hello world" and show me its cont
 
 The agent should create the file inside a sandboxed container and display the output.
 
-### 5. Test oh-my-opencode skill loading
+### 5. Test gsd-opencode skill loading
 
 ```bash
-# Install a test skill repo (replace with any oh-my-opencode compatible repo)
-moltis skills install https://github.com/moltis-org/example-skills
+# Install a test gsd-opencode skill repo (must contain gsd-*.md files in .opencode/rules/)
+moltis skills install https://github.com/AloSantana/gsd-opencode
 
 # Check it appears in the skills list
 moltis skills list
