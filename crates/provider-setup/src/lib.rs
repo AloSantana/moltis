@@ -889,6 +889,15 @@ pub fn known_providers() -> Vec<KnownProvider> {
             requires_model: false,
             key_optional: false,
         },
+        KnownProvider {
+            name: "gemini-code-assist",
+            display_name: "Gemini Code Assist",
+            auth_type: AuthType::Oauth,
+            env_key: None,
+            default_base_url: None,
+            requires_model: false,
+            key_optional: false,
+        },
     ];
 
     // Add local-llm provider when the local-llm feature is enabled
@@ -993,9 +1002,50 @@ fn parse_codex_cli_tokens(data: &str) -> Option<moltis_oauth::OAuthTokens> {
     })
 }
 
+// ── Gemini CLI helpers ────────────────────────────────────────────────────────
+
+fn gemini_cli_credentials_path() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    Some(PathBuf::from(home).join(".gemini").join("oauth_credentials.json"))
+}
+
+fn gemini_cli_has_access_token(path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+    json.get("token")
+        .and_then(|v| v.as_str())
+        .is_some_and(|token| !token.trim().is_empty())
+}
+
+fn parse_gemini_cli_tokens(data: &str) -> Option<moltis_oauth::OAuthTokens> {
+    let json: Value = serde_json::from_str(data).ok()?;
+    let access_token = json.get("token")?.as_str()?.to_string();
+    if access_token.trim().is_empty() {
+        return None;
+    }
+    let refresh_token = json
+        .get("refreshToken")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    // `expiry` is an RFC 3339 string; we leave it as `None` here and let the
+    // provider handle refresh via its own expiry logic.
+    Some(moltis_oauth::OAuthTokens {
+        access_token: Secret::new(access_token),
+        refresh_token: refresh_token.map(Secret::new),
+        id_token: None,
+        account_id: None,
+        expires_at: None,
+    })
+}
+
 /// Import auto-detected external OAuth tokens into the token store so all
-/// providers read from a single location. Currently handles Codex CLI
-/// `~/.codex/auth.json` → `openai-codex` in the token store.
+/// providers read from a single location.  Handles:
+/// - Codex CLI `~/.codex/auth.json` → `openai-codex`
+/// - Gemini CLI `~/.gemini/oauth_credentials.json` → `gemini-code-assist`
 pub fn import_detected_oauth_tokens(
     detected: &[AutoDetectedProviderSource],
     token_store: &TokenStore,
@@ -1016,6 +1066,25 @@ pub fn import_detected_oauth_tokens(
                 Err(e) => debug!(
                     error = %e,
                     "failed to import openai-codex tokens"
+                ),
+            }
+        }
+
+        if source.provider == "gemini-code-assist"
+            && source.source.contains(".gemini/oauth_credentials.json")
+            && token_store.load("gemini-code-assist").is_none()
+            && let Some(path) = gemini_cli_credentials_path()
+            && let Ok(data) = std::fs::read_to_string(&path)
+            && let Some(tokens) = parse_gemini_cli_tokens(&data)
+        {
+            match token_store.save("gemini-code-assist", &tokens) {
+                Ok(()) => info!(
+                    source = %path.display(),
+                    "imported gemini-code-assist tokens from Gemini CLI credentials"
+                ),
+                Err(e) => debug!(
+                    error = %e,
+                    "failed to import gemini-code-assist tokens"
                 ),
             }
         }
@@ -1099,6 +1168,7 @@ pub fn detect_auto_provider_sources_with_overrides(
     #[cfg(feature = "local-llm")]
     let local_llm_config_path = config_dir.join("local-llm.json");
     let codex_path = codex_cli_auth_path();
+    let gemini_cli_path = gemini_cli_credentials_path();
 
     let mut seen = BTreeSet::new();
     let mut detected = Vec::new();
@@ -1169,6 +1239,15 @@ pub fn detect_auto_provider_sources_with_overrides(
                 .as_deref()
                 .is_some_and(codex_cli_auth_has_access_token)
             && let Some(path) = codex_path.as_ref()
+        {
+            sources.push(format!("file:{}", path.display()));
+        }
+
+        if provider.name == "gemini-code-assist"
+            && gemini_cli_path
+                .as_deref()
+                .is_some_and(gemini_cli_has_access_token)
+            && let Some(path) = gemini_cli_path.as_ref()
         {
             sources.push(format!("file:{}", path.display()));
         }
@@ -1471,6 +1550,15 @@ impl LiveProviderSetupService {
             {
                 return true;
             }
+            // gemini-code-assist may be inferred from Gemini CLI credentials at
+            // ~/.gemini/oauth_credentials.json.
+            if provider.name == "gemini-code-assist"
+                && gemini_cli_credentials_path()
+                    .as_deref()
+                    .is_some_and(gemini_cli_has_access_token)
+            {
+                return true;
+            }
             return false;
         }
         // For local providers, check if model is configured in local_llm config
@@ -1602,6 +1690,10 @@ fn has_oauth_tokens_for_provider(
             && codex_cli_auth_path()
                 .as_deref()
                 .is_some_and(codex_cli_auth_has_access_token))
+        || (provider_name == "gemini-code-assist"
+            && gemini_cli_credentials_path()
+                .as_deref()
+                .is_some_and(gemini_cli_has_access_token))
 }
 
 /// Build provider-specific extra headers for device-flow OAuth calls.
@@ -2880,7 +2972,10 @@ fn probe_priority_rank(model_id: &str, fast: &[&str], slow: &[&str]) -> u8 {
 #[cfg(test)]
 mod tests {
     use {
-        super::*, moltis_config::schema::ProviderEntry, moltis_oauth::OAuthTokens, secrecy::Secret,
+        super::*,
+        moltis_config::schema::ProviderEntry,
+        moltis_oauth::OAuthTokens,
+        secrecy::{ExposeSecret, Secret},
     };
 
     #[test]
@@ -3028,6 +3123,62 @@ mod tests {
     #[test]
     fn provider_headers_are_none_for_non_kimi() {
         assert!(build_provider_headers("github-copilot").is_none());
+    }
+
+    #[test]
+    fn gemini_cli_has_access_token_detects_valid_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("oauth_credentials.json");
+        std::fs::write(
+            &path,
+            r#"{"token":"ya29.real","refreshToken":"1//r","clientId":"cid","clientSecret":"cs"}"#,
+        )
+        .unwrap();
+        assert!(gemini_cli_has_access_token(&path));
+    }
+
+    #[test]
+    fn gemini_cli_has_access_token_empty_returns_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("oauth_credentials.json");
+        std::fs::write(&path, r#"{"token":"  "}"#).unwrap();
+        assert!(!gemini_cli_has_access_token(&path));
+    }
+
+    #[test]
+    fn gemini_cli_has_access_token_missing_file_returns_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent.json");
+        assert!(!gemini_cli_has_access_token(&path));
+    }
+
+    #[test]
+    fn parse_gemini_cli_tokens_valid() {
+        let json = r#"{
+            "token": "ya29.access",
+            "refreshToken": "1//refresh",
+            "expiry": "2025-03-11T19:04:00Z"
+        }"#;
+        let tokens = parse_gemini_cli_tokens(json).expect("should parse");
+        assert_eq!(tokens.access_token.expose_secret(), "ya29.access");
+        assert!(tokens.refresh_token.is_some());
+    }
+
+    #[test]
+    fn parse_gemini_cli_tokens_empty_token_returns_none() {
+        let json = r#"{"token": "", "refreshToken": "1//r"}"#;
+        assert!(parse_gemini_cli_tokens(json).is_none());
+    }
+
+    #[test]
+    fn gemini_code_assist_is_oauth_provider() {
+        let providers = known_providers();
+        let p = providers
+            .iter()
+            .find(|p| p.name == "gemini-code-assist")
+            .expect("gemini-code-assist not in known_providers");
+        assert_eq!(p.auth_type, AuthType::Oauth);
+        assert!(p.env_key.is_none());
     }
 
     #[test]
@@ -3908,6 +4059,7 @@ mod tests {
         assert!(names.contains(&"ollama"), "missing ollama");
         // OAuth providers
         assert!(names.contains(&"github-copilot"), "missing github-copilot");
+        assert!(names.contains(&"gemini-code-assist"), "missing gemini-code-assist");
     }
 
     #[test]
