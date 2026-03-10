@@ -283,6 +283,42 @@ enabled = true
 models = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash"]
 </code></pre>
 <p>Gemini supports native tool calling, vision/multimodal inputs, streaming, and automatic model discovery.</p>
+<h3 id="gemini-code-assist-gemini-cli-oauth"><a class="header" href="#gemini-code-assist-gemini-cli-oauth">Gemini Code Assist (Gemini CLI OAuth)</a></h3>
+<p>Gemini Code Assist authenticates via OAuth credentials written by the
+<a href="https://github.com/google-gemini/gemini-cli">Gemini CLI</a>.  No API key is
+required — Moltis reads <code>~/.gemini/oauth_credentials.json</code> automatically.</p>
+<p><strong>Setup:</strong></p>
+<ol>
+<li>Install the Gemini CLI:
+<pre><code class="language-bash">npm i -g @google/gemini-cli
+</code></pre>
+</li>
+<li>Authenticate:
+<pre><code class="language-bash">gemini auth login
+</code></pre>
+</li>
+<li>Moltis will automatically detect the credentials and offer Gemini Code
+Assist models in the model picker.</li>
+</ol>
+<p>Alternatively, you can log in from Moltis directly:</p>
+<pre><code class="language-bash">moltis auth login --provider gemini-code-assist
+</code></pre>
+<pre><code class="language-toml">[providers.gemini-code-assist]
+enabled = true
+# models = ["gemini-2.5-pro-preview-05-06"]  # optionally pin a model
+</code></pre>
+<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div class="admonition-title">
+<div id="admonition-info-title">
+<p>Info</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-info"></a>
+</div>
+<div>
+<p>Requires an active Google account with Gemini access.  Personal use is
+covered by the <a href="https://ai.google.dev/pricing">Gemini API free tier</a>.</p>
+</div>
+</div>
 <h3 id="anthropic"><a class="header" href="#anthropic">Anthropic</a></h3>
 <ol>
 <li>Get an API key from <a href="https://console.anthropic.com/">console.anthropic.com</a>.</li>
@@ -348,12 +384,12 @@ CLI:</p>
 </code></pre>
 </div>
 </div>
-<div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
+<div id="admonition-info-1" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-1-title">
 <div class="admonition-title">
-<div id="admonition-info-title">
+<div id="admonition-info-1-title">
 <p>Info</p>
 </div>
-<a class="admonition-anchor-link" href="#admonition-info"></a>
+<a class="admonition-anchor-link" href="#admonition-info-1"></a>
 </div>
 <div>
 <p>Requires an active GitHub Copilot subscription.</p>
