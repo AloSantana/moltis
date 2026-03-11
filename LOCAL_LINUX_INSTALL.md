@@ -15,7 +15,6 @@ This guide covers installing Moltis on a local Linux machine so it acts as your 
   - [Build from Source](#7-build-from-source)
 - [First Run](#first-run)
 - [Configure a Provider](#configure-a-provider)
-- [GSD-OpenCode / gsd-opencode Skills](#gsd-opencode--gsd-opencode-skills)
 - [Run as a System Service](#run-as-a-system-service)
 - [Connecting a DigitalOcean WebUI Hub](#connecting-a-digitalocean-webui-hub)
 - [Adding Remote Nodes](#adding-remote-nodes)
@@ -202,67 +201,6 @@ Restart Moltis — provider models appear automatically in the model picker.
 
 ---
 
-## GSD-OpenCode / gsd-opencode Skills
-
-Moltis supports skills from [gsd-opencode](https://github.com/AloSantana/gsd-opencode)
-compatible repositories. These are repositories that store rules/prompts under
-`.opencode/rules/gsd-*.md` (files with the `gsd-` prefix).
-
-> **Note:** Native [opencode.ai](https://opencode.ai) projects that use
-> `.opencode/rules/` without the `gsd-` prefix are **not** claimed by Moltis —
-> they remain untouched so both tools can coexist in the same project.
-
-### Installing a gsd-opencode skill repo
-
-```bash
-# Via the web UI
-# Settings → Skills → Install from URL → paste the GitHub URL
-
-# Or via CLI
-moltis skills install https://github.com/<user>/<repo>
-```
-
-### Rule file format
-
-Moltis scans `.opencode/rules/gsd-*.md` files. Each file may have optional YAML frontmatter:
-
-```markdown
----
-name: rust-idioms
-description: Idiomatic Rust coding guidelines
-alwaysApply: true
----
-
-Always prefer iterators over manual loops.
-Use `?` for error propagation instead of `.unwrap()`.
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | No | Overrides the filename stem as the skill identifier |
-| `description` | No | One-line summary shown in the skills list |
-| `alwaysApply` | No | When `true`, rule is always injected into the system prompt |
-
-Detection requires at least one file named `gsd-*.md` inside `.opencode/rules/`. Once
-detected, all `*.md` files in that directory are loaded as skills.
-
-### Importing from OpenClaw
-
-If you were previously using OpenClaw, Moltis can import your skills, memory, sessions,
-and provider keys automatically:
-
-```bash
-# Detect and preview what will be imported
-moltis import list
-
-# Execute the import
-moltis import execute
-```
-
-Or use the **Settings → Import** page in the Web UI.
-
----
-
 ## Run as a System Service
 
 To have Moltis start automatically on boot and restart on failure, install it as a
@@ -442,17 +380,7 @@ You: Create a file called test.txt containing "hello world" and show me its cont
 
 The agent should create the file inside a sandboxed container and display the output.
 
-### 5. Test gsd-opencode skill loading
-
-```bash
-# Install a test gsd-opencode skill repo (must contain gsd-*.md files in .opencode/rules/)
-moltis skills install https://github.com/AloSantana/gsd-opencode
-
-# Check it appears in the skills list
-moltis skills list
-```
-
-### 6. Verify nodes (if applicable)
+### 5. Verify nodes (if applicable)
 
 ```bash
 moltis node list          # Lists all connected nodes
