@@ -629,6 +629,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic-polyfill"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cf2bce30dfe09ef0bfaef228b9d414faaf7e563035494d7fe092dba54b300f4"
+dependencies = [
+ "critical-section",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -852,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "moltis-agents",
@@ -1817,6 +1826,12 @@ checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "cron"
@@ -2790,7 +2805,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7223ae2d2f179b803433d9c830478527e92b8117eab39460edae7f1614d9fb73"
 dependencies = [
- "heapless",
+ "heapless 0.8.0",
  "serde",
 ]
 
@@ -4242,6 +4257,15 @@ dependencies = [
 
 [[package]]
 name = "hash32"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0c35f58762feb77d74ebe43bdbc3210f09be9fe6742234d573bacc26ed92b67"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
+name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
@@ -4299,11 +4323,25 @@ dependencies = [
 
 [[package]]
 name = "heapless"
+version = "0.7.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdc6457c0eb62c71aac4bc17216026d8410337c4126773b9c5daba343f17964f"
+dependencies = [
+ "atomic-polyfill",
+ "hash32 0.2.1",
+ "rustc_version",
+ "serde",
+ "spin",
+ "stable_deref_trait",
+]
+
+[[package]]
+name = "heapless"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
 dependencies = [
- "hash32",
+ "hash32 0.3.1",
  "stable_deref_trait",
 ]
 
@@ -5730,7 +5768,7 @@ dependencies = [
 
 [[package]]
 name = "moltis"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5770,7 +5808,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-agents"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -5797,7 +5835,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-auth"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5825,7 +5863,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-auto-reply"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "moltis-agents",
  "moltis-common",
@@ -5840,7 +5878,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-browser"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5863,7 +5901,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-caldav"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5887,7 +5925,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-canvas"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "axum",
  "moltis-common",
@@ -5899,7 +5937,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-channels"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5917,7 +5955,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-chat"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5954,7 +5992,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-common"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -5969,7 +6007,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-config"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono-tz",
@@ -5989,7 +6027,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-courier"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "a2",
  "anyhow",
@@ -6005,7 +6043,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-cron"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6028,7 +6066,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-discord"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6051,7 +6089,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-gateway"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -6150,7 +6188,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-graphql"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-graphql",
  "async-stream",
@@ -6166,12 +6204,13 @@ dependencies = [
 
 [[package]]
 name = "moltis-mcp"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
  "mockito",
  "moltis-common",
+ "moltis-config",
  "moltis-metrics",
  "moltis-oauth",
  "reqwest 0.12.28",
@@ -6189,7 +6228,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-media"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "image",
  "moltis-common",
@@ -6203,7 +6242,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-memory"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6246,7 +6285,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-metrics"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "metrics 0.24.3",
@@ -6264,7 +6303,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-msteams"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6287,7 +6326,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-network-filter"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "moltis-metrics",
@@ -6303,10 +6342,11 @@ dependencies = [
 
 [[package]]
 name = "moltis-node-host"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
+ "moltis-config",
  "moltis-metrics",
  "moltis-protocol",
  "reqwest 0.12.28",
@@ -6323,7 +6363,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-oauth"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -6346,7 +6386,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-onboarding"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "moltis-common",
  "moltis-config",
@@ -6362,7 +6402,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-openclaw-import"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "dirs-next",
  "json5",
@@ -6385,7 +6425,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-plugins"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "moltis-common",
@@ -6404,7 +6444,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-projects"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "moltis-metrics",
@@ -6421,7 +6461,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-protocol"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "moltis-metrics",
  "serde",
@@ -6431,7 +6471,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-provider-setup"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -6453,7 +6493,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-providers"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -6488,7 +6528,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-qmd"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6502,7 +6542,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-routing"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "moltis-common",
  "moltis-config",
@@ -6515,7 +6555,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-schema-export"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "moltis-graphql",
  "moltis-service-traits",
@@ -6525,7 +6565,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-service-traits"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6538,7 +6578,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-sessions"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "fd-lock",
  "moltis-common",
@@ -6555,7 +6595,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-skills"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6576,7 +6616,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-slack"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6599,7 +6639,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-swift-bridge"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6627,7 +6667,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-tailscale"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -6639,7 +6679,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-telegram"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -6664,7 +6704,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-tls"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "axum",
  "hostname",
@@ -6685,7 +6725,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-tools"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6728,7 +6768,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-vault"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -6749,7 +6789,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-voice"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6772,7 +6812,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-wasm-calc"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -6782,7 +6822,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-wasm-precompile"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "wasmtime",
@@ -6790,7 +6830,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-wasm-web-fetch"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "serde_json",
  "url",
@@ -6800,7 +6840,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-wasm-web-search"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "serde_json",
  "url",
@@ -6810,7 +6850,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-web"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
@@ -6842,7 +6882,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-whatsapp"
-version = "0.10.18"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6852,6 +6892,7 @@ dependencies = [
  "moltis-config",
  "moltis-media",
  "moltis-metrics",
+ "postcard",
  "rand 0.9.2",
  "serde",
  "serde_json",
@@ -7754,6 +7795,7 @@ dependencies = [
  "cobs",
  "embedded-io 0.4.0",
  "embedded-io 0.6.1",
+ "heapless 0.7.17",
  "serde",
 ]
 

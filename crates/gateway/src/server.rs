@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, Secret};
 
 use {
     axum::{
@@ -320,7 +320,7 @@ fn should_prebuild_sandbox_image(
 
 fn instance_slug(config: &moltis_config::MoltisConfig) -> String {
     let mut raw_name = config.identity.name.clone();
-    if let Some(file_identity) = moltis_config::load_identity()
+    if let Some(file_identity) = moltis_config::load_identity_for_agent("main")
         && file_identity.name.is_some()
     {
         raw_name = file_identity.name;
@@ -703,7 +703,8 @@ pub fn build_gateway_base(
 ) -> (Router<AppState>, AppState) {
     let mut router = Router::new()
         .route("/health", get(health_handler))
-        .route("/ws/chat", get(ws_upgrade_handler));
+        .route("/ws/chat", get(ws_upgrade_handler))
+        .route("/ws", get(ws_upgrade_handler));
 
     // Nest auth routes if credential store is available.
     if let Some(ref cred_store) = state.credential_store {
@@ -759,7 +760,8 @@ pub fn build_gateway_base(
 ) -> (Router<AppState>, AppState) {
     let mut router = Router::new()
         .route("/health", get(health_handler))
-        .route("/ws/chat", get(ws_upgrade_handler));
+        .route("/ws/chat", get(ws_upgrade_handler))
+        .route("/ws", get(ws_upgrade_handler));
 
     // Add Prometheus metrics endpoint (unauthenticated for scraping).
     #[cfg(feature = "prometheus")]
@@ -1366,6 +1368,11 @@ pub struct PreparedGateway {
     /// the `trusted-network` feature is enabled and the proxy is active).
     #[cfg(feature = "trusted-network")]
     pub audit_buffer: Option<crate::network_audit::NetworkAuditBuffer>,
+    /// Shutdown sender for the trusted-network proxy.  Retained here so the
+    /// proxy task is not cancelled when `prepare_gateway` returns (dropping
+    /// the sender closes the watch channel and triggers immediate shutdown).
+    #[cfg(feature = "trusted-network")]
+    _proxy_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 /// Internal metadata for the startup banner printed by [`start_gateway`].
@@ -1682,27 +1689,26 @@ pub async fn prepare_gateway(
                         env: entry.env.clone(),
                         enabled: entry.enabled,
                         transport,
-                        url: entry.url.clone(),
+                        url: entry.url.clone().map(Secret::new),
+                        headers: entry
+                            .headers
+                            .iter()
+                            .map(|(key, value)| (key.clone(), Secret::new(value.clone())))
+                            .collect(),
                         oauth,
                     });
             }
         }
         mcp_configured_count = merged.servers.values().filter(|s| s.enabled).count();
-        let mcp_manager = Arc::new(moltis_mcp::McpManager::new(merged));
-        live_mcp = Arc::new(crate::mcp_service::LiveMcpService::new(Arc::clone(
-            &mcp_manager,
-        )));
-        // Start enabled servers in the background; sync tools once done.
-        let mgr = Arc::clone(&mcp_manager);
-        let mcp_for_sync = Arc::clone(&live_mcp);
-        tokio::spawn(async move {
-            let started = mgr.start_enabled().await;
-            if !started.is_empty() {
-                tracing::info!(servers = ?started, "MCP servers started");
-            }
-            // Sync newly started tools into the agent tool registry.
-            mcp_for_sync.sync_tools_if_ready().await;
-        });
+        let mcp_manager = Arc::new(moltis_mcp::McpManager::new_with_env_overrides(
+            merged,
+            config_env_overrides.clone(),
+        ));
+        live_mcp = Arc::new(crate::mcp_service::LiveMcpService::new(
+            Arc::clone(&mcp_manager),
+            config_env_overrides.clone(),
+            None,
+        ));
         services.mcp = live_mcp.clone() as Arc<dyn crate::services::McpService>;
     }
     startup_mem_probe.checkpoint("services.core_wired");
@@ -1852,6 +1858,24 @@ pub async fn prepare_gateway(
             config_env_overrides.clone()
         },
     };
+    live_mcp
+        .manager()
+        .set_env_overrides(runtime_env_overrides.clone())
+        .await;
+    live_mcp
+        .set_credential_store(Arc::clone(&credential_store))
+        .await;
+    // Start enabled MCP servers only after runtime env overrides are available,
+    // so URL/header placeholders backed by Settings env vars resolve on boot.
+    let mgr = Arc::clone(live_mcp.manager());
+    let mcp_for_sync = Arc::clone(&live_mcp);
+    tokio::spawn(async move {
+        let started = mgr.start_enabled().await;
+        if !started.is_empty() {
+            tracing::info!(servers = ?started, "MCP servers started");
+        }
+        mcp_for_sync.sync_tools_if_ready().await;
+    });
 
     // Initialize WebAuthn registry for passkey support.
     // Each hostname the user may access from gets its own RP ID + origins entry
@@ -2335,6 +2359,8 @@ pub async fn prepare_gateway(
     #[cfg(feature = "trusted-network")]
     let proxy_url_for_tools: Option<String>;
     #[cfg(feature = "trusted-network")]
+    let proxy_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>;
+    #[cfg(feature = "trusted-network")]
     {
         let (audit_tx, audit_rx) =
             tokio::sync::mpsc::channel::<moltis_network_filter::NetworkAuditEntry>(1024);
@@ -2359,7 +2385,7 @@ pub async fn prepare_gateway(
                 Arc::clone(&domain_mgr),
                 Some(audit_tx.clone()),
             );
-            let (_proxy_shutdown_tx, proxy_shutdown_rx) = tokio::sync::watch::channel(false);
+            let (shutdown_tx, proxy_shutdown_rx) = tokio::sync::watch::channel(false);
             tokio::spawn(async move {
                 if let Err(e) = proxy.run(proxy_shutdown_rx).await {
                     tracing::warn!("network proxy exited: {e}");
@@ -2375,12 +2401,14 @@ pub async fn prepare_gateway(
             );
             moltis_tools::init_shared_http_client(Some(&url));
             proxy_url_for_tools = Some(url);
+            proxy_shutdown_tx = Some(shutdown_tx);
         } else {
             info!(
                 network_policy = ?sandbox_config.network,
                 "trusted-network proxy not started (policy is not Trusted)"
             );
             proxy_url_for_tools = None;
+            proxy_shutdown_tx = None;
         }
 
         // Create the live network audit service from the receiver channel.
@@ -3269,7 +3297,7 @@ pub async fn prepare_gateway(
             prefix: None,
             global_labels: vec![
                 ("service".to_string(), "moltis-gateway".to_string()),
-                ("version".to_string(), env!("CARGO_PKG_VERSION").to_string()),
+                ("version".to_string(), moltis_config::VERSION.to_string()),
             ],
         };
         match moltis_metrics::init_metrics(metrics_config) {
@@ -3355,7 +3383,7 @@ pub async fn prepare_gateway(
         if !credential_store.is_setup_complete() && !credential_store.is_auth_disabled() {
             let code = std::env::var("MOLTIS_E2E_SETUP_CODE")
                 .unwrap_or_else(|_| crate::auth_routes::generate_setup_code());
-            state.inner.write().await.setup_code = Some(secrecy::Secret::new(code.clone()));
+            state.inner.write().await.setup_code = Some(Secret::new(code.clone()));
             Some(code)
         } else {
             None
@@ -4948,6 +4976,8 @@ pub async fn prepare_gateway(
         },
         #[cfg(feature = "trusted-network")]
         audit_buffer: audit_buffer_for_broadcast,
+        #[cfg(feature = "trusted-network")]
+        _proxy_shutdown_tx: proxy_shutdown_tx,
     })
 }
 
@@ -5038,7 +5068,7 @@ pub async fn start_gateway(
         match crate::mdns::register(
             &instance,
             port,
-            env!("CARGO_PKG_VERSION"),
+            moltis_config::VERSION,
             Some(&instance_slug(config)),
         ) {
             Ok(daemon) => Some(daemon),
