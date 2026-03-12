@@ -249,8 +249,68 @@ app_token = "xapp-..."
 [channels.whatsapp.my_wa]
 dm_policy = "open"
 </code></pre>
-<p>See the web UI’s <strong>Channels</strong> tab for guided setup with each platform.</p>
-
+<p>For detailed configuration, see the per-channel pages:
+<a href="telegram.html">Telegram</a>, <a href="discord.html">Discord</a>, <a href="slack.html">Slack</a>,
+<a href="whatsapp.html">WhatsApp</a>.</p>
+<p>You can also use the web UI’s <strong>Channels</strong> tab for guided setup with each platform.</p>
+<h2 id="access-control"><a class="header" href="#access-control">Access Control</a></h2>
+<p>All channels share the same access control model with three settings:</p>
+<h3 id="dm-policy"><a class="header" href="#dm-policy">DM Policy</a></h3>
+<p>Controls who can send direct messages to the bot.</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"allowlist"</code></td><td>Only users listed in <code>allowlist</code> can DM (<strong>default for all channels except WhatsApp</strong>)</td></tr>
+<tr><td><code>"open"</code></td><td>Anyone can DM the bot</td></tr>
+<tr><td><code>"disabled"</code></td><td>DMs are silently ignored</td></tr>
+</tbody></table>
+</div><div id="admonition-empty-allowlist-blocks-everyone" class="admonition admonish-warning" role="note" aria-labelledby="admonition-empty-allowlist-blocks-everyone-title">
+<div class="admonition-title">
+<div id="admonition-empty-allowlist-blocks-everyone-title">
+<p>Empty allowlist blocks everyone</p>
+</div>
+<a class="admonition-anchor-link" href="#admonition-empty-allowlist-blocks-everyone"></a>
+</div>
+<div>
+<p>When <code>dm_policy = "allowlist"</code> with an empty <code>allowlist</code>, <strong>all DMs are blocked</strong>.
+This is a security feature — removing all entries from an allowlist never silently
+switches to open access. Add user IDs/usernames to <code>allowlist</code> or set
+<code>dm_policy = "open"</code>.</p>
+</div>
+</div>
+<h3 id="group-policy"><a class="header" href="#group-policy">Group Policy</a></h3>
+<p>Controls who can interact with the bot in group chats / channels / guilds.</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"open"</code></td><td>Bot responds in all groups (default)</td></tr>
+<tr><td><code>"allowlist"</code></td><td>Only groups on the allowlist are allowed</td></tr>
+<tr><td><code>"disabled"</code></td><td>Group messages are silently ignored</td></tr>
+</tbody></table>
+</div>
+<p>The group allowlist field name varies by channel: <code>group_allowlist</code> (Telegram,
+WhatsApp, MS Teams), <code>guild_allowlist</code> (Discord), <code>channel_allowlist</code> (Slack).</p>
+<h3 id="mention-mode"><a class="header" href="#mention-mode">Mention Mode</a></h3>
+<p>Controls when the bot responds in groups (does not apply to DMs).</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"mention"</code></td><td>Bot only responds when @mentioned (default)</td></tr>
+<tr><td><code>"always"</code></td><td>Bot responds to every message</td></tr>
+<tr><td><code>"none"</code></td><td>Bot never responds in groups (DM-only)</td></tr>
+</tbody></table>
+</div>
+<h3 id="allowlist-matching"><a class="header" href="#allowlist-matching">Allowlist Matching</a></h3>
+<p>All allowlist fields across all channels share the same matching behavior:</p>
+<ul>
+<li><strong>Values are strings</strong> — even for numeric IDs, use <code>"123456789"</code> not <code>123456789</code></li>
+<li><strong>Case-insensitive</strong> — <code>"Alice"</code> matches <code>"alice"</code></li>
+<li><strong>Glob wildcards</strong> — <code>"admin_*"</code>, <code>"*@example.com"</code>, <code>"user_*_vip"</code></li>
+<li><strong>Multiple identifiers</strong> — both the user’s numeric ID and username are checked (where applicable)</li>
+</ul>
+<h3 id="otp-self-approval"><a class="header" href="#otp-self-approval">OTP Self-Approval</a></h3>
+<p>Channels that support OTP (Telegram, Discord, WhatsApp) allow non-allowlisted
+users to self-approve by entering a 6-digit code. The code appears in the web UI
+under <strong>Channels &gt; Senders</strong>. See each channel’s page for details.</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>otp_self_approval</code></td><td><code>true</code></td><td>Enable OTP challenges for non-allowlisted DM users</td></tr>
+<tr><td><code>otp_cooldown_secs</code></td><td><code>300</code></td><td>Lockout duration after 3 failed attempts</td></tr>
+</tbody></table>
+</div>
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
@@ -259,7 +319,7 @@ dm_policy = "open"
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="discord.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="telegram.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -273,7 +333,7 @@ dm_policy = "open"
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="discord.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="telegram.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

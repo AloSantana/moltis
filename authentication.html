@@ -328,6 +328,7 @@ are configured:</p>
 <tr><td><code>/auth/callback</code></td><td>OAuth callback</td></tr>
 <tr><td><code>/manifest.json</code></td><td>PWA manifest</td></tr>
 <tr><td><code>/sw.js</code></td><td>Service worker</td></tr>
+<tr><td><code>/ws</code></td><td>Node WebSocket endpoint (device token auth at protocol level)</td></tr>
 </tbody></table>
 </div>
 <h2 id="request-throttling"><a class="header" href="#request-throttling">Request Throttling</a></h2>
@@ -345,6 +346,7 @@ required for the current request.</p>
 <tr><td>Other <code>/api/auth/*</code></td><td>120 requests per 60 seconds</td></tr>
 <tr><td>Other <code>/api/*</code></td><td>180 requests per 60 seconds</td></tr>
 <tr><td><code>/ws/chat</code> upgrade</td><td>30 requests per 60 seconds</td></tr>
+<tr><td><code>/ws</code> upgrade</td><td>30 requests per 60 seconds</td></tr>
 </tbody></table>
 </div>
 <p>When a limit is exceeded:</p>

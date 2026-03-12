@@ -260,20 +260,32 @@ for easier access to configuration files:</p>
 <p>Moltis runs LLM-generated shell commands inside isolated containers for
 security. When Moltis itself runs in a container, it needs access to the host’s
 container runtime to create these sandbox containers.</p>
-<p><strong>Without the socket mount</strong>, sandbox execution is disabled. The agent will
-still work for chat-only interactions, but any tool that runs shell commands
-will fail.</p>
-<pre><code class="language-bash"># Required for sandbox execution
+<pre><code class="language-bash"># Recommended for full container isolation
 -v /var/run/docker.sock:/var/run/docker.sock
 </code></pre>
+<p><strong>Without the socket mount</strong>, Moltis automatically falls back to the
+<a href="sandbox.html#restricted-host-sandbox">restricted-host sandbox</a>, which provides
+lightweight isolation by clearing environment variables, restricting <code>PATH</code>,
+and applying resource limits via <code>ulimit</code>. Commands will execute successfully
+inside the Moltis container but without filesystem or network isolation.</p>
+<p>For full container-level isolation (filesystem boundaries, network policies),
+mount the Docker socket.</p>
+<p>If Moltis is itself running in Docker and your <code>data_dir()</code> mount is backed by
+a different host path than <code>/home/moltis/.moltis</code>, Moltis will try to discover
+that host path automatically from <code>docker inspect</code>/<code>podman inspect</code>. If that
+lookup fails, add this to <code>/home/moltis/.config/moltis/moltis.toml</code> inside the
+container:</p>
+<pre><code class="language-toml">[tools.exec.sandbox]
+host_data_dir = "/absolute/host/path/to/data"
+</code></pre>
+<p>For a bind mount like <code>-v ./data:/home/moltis/.moltis</code>, use the resolved host
+path to <code>./data</code>. Restart Moltis after changing the config so new sandbox
+containers pick up the corrected mount source.</p>
 <h3 id="security-consideration"><a class="header" href="#security-consideration">Security Consideration</a></h3>
 <p>Mounting the Docker socket gives the container full access to the Docker
 daemon. This is equivalent to root access on the host for practical purposes.
 Only run Moltis containers from trusted sources (official images from
 <code>ghcr.io/moltis-org/moltis</code>).</p>
-<p>If you cannot mount the Docker socket, Moltis will run in “no sandbox” mode —
-commands execute directly inside the Moltis container itself, which provides
-no isolation.</p>
 <h2 id="docker-compose"><a class="header" href="#docker-compose">Docker Compose</a></h2>
 <p>See <a href="../examples/docker-compose.yml"><code>examples/docker-compose.yml</code></a> for a
 complete example:</p>

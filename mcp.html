@@ -203,9 +203,10 @@
 <ol>
 <li>Go to <strong>Settings</strong> → <strong>MCP Servers</strong></li>
 <li>Click <strong>Add Server</strong></li>
-<li>Enter the server configuration</li>
+<li>For remote Streamable HTTP servers, enter the server URL and any optional request headers</li>
 <li>Click <strong>Save</strong></li>
 </ol>
+<p>After saving a remote server, Moltis only shows a sanitized URL plus header names/count in the UI and status views. Stored header values stay hidden.</p>
 <h3 id="via-configuration"><a class="header" href="#via-configuration">Via Configuration</a></h3>
 <p>Add servers to <code>moltis.toml</code>:</p>
 <pre><code class="language-toml">[mcp.servers.filesystem]
@@ -218,9 +219,11 @@ args = ["-y", "@modelcontextprotocol/server-github"]
 env = { GITHUB_TOKEN = "ghp_..." }
 
 [mcp.servers.remote_api]
-url = "https://mcp.example.com/mcp"
 transport = "sse"
+url = "https://mcp.example.com/mcp?api_key=$REMOTE_MCP_KEY"
+headers = { Authorization = "Bearer ${REMOTE_MCP_TOKEN}" }
 </code></pre>
+<p>Remote URLs and headers support <code>$NAME</code> and <code>${NAME}</code> placeholders. For live remote servers, placeholder values resolve from Moltis-managed env overrides, either <code>[env]</code> in config or <strong>Settings</strong> → <strong>Environment Variables</strong>.</p>
 <h2 id="popular-mcp-servers"><a class="header" href="#popular-mcp-servers">Popular MCP Servers</a></h2>
 <h3 id="official-servers"><a class="header" href="#official-servers">Official Servers</a></h3>
 <div class="table-wrapper"><table><thead><tr><th>Server</th><th>Description</th><th>Install</th></tr></thead><tbody>
@@ -245,7 +248,24 @@ env = { API_KEY = "secret", DEBUG = "true" }
 # Optional: remote transport
 transport = "sse"               # "stdio" (default) or "sse"
 url = "https://mcp.example.com/mcp"  # Required when transport = "sse"
+headers = { "x-api-key" = "$REMOTE_MCP_KEY" }  # Optional request headers
 </code></pre>
+<h2 id="remote-sse-secrets-and-placeholders"><a class="header" href="#remote-sse-secrets-and-placeholders">Remote SSE Secrets and Placeholders</a></h2>
+<p>Remote MCP servers often expect API keys or bearer tokens in the URL query string or request headers. Moltis supports both patterns.</p>
+<pre><code class="language-toml">[mcp.servers.linear_remote]
+transport = "sse"
+url = "https://mcp.example.com/mcp?api_key=$REMOTE_MCP_KEY"
+headers = {
+  Authorization = "Bearer ${REMOTE_MCP_TOKEN}",
+  "x-workspace" = "team-a",
+}
+</code></pre>
+<ul>
+<li>Use <code>$NAME</code> or <code>${NAME}</code> placeholders in remote <code>url</code> and <code>headers</code></li>
+<li>Placeholder values resolve from Moltis-managed env overrides, either <code>[env]</code> in config or <strong>Settings</strong> → <strong>Environment Variables</strong></li>
+<li>UI and API status payloads only expose sanitized URLs plus header names/count, not raw header values</li>
+<li>Query-string secrets are redacted when Moltis displays a remote URL after save</li>
+</ul>
 <h2 id="server-lifecycle"><a class="header" href="#server-lifecycle">Server Lifecycle</a></h2>
 <pre><code>┌─────────────────────────────────────────────────────┐
 │                   MCP Server                         │
@@ -327,6 +347,7 @@ args = ["server.js"]
 <ul>
 <li>Connection status (connected/disconnected/error)</li>
 <li>Available tools</li>
+<li>Sanitized remote URL and configured header names</li>
 <li>Recent errors</li>
 </ul>
 <h3 id="view-logs"><a class="header" href="#view-logs">View Logs</a></h3>
@@ -380,6 +401,7 @@ scopes = ["mcp:read", "mcp:write"]
 <li><strong>Review server code</strong> before running</li>
 <li><strong>Limit file access</strong> — use specific paths, not <code>/</code></li>
 <li><strong>Use environment variables</strong> for secrets</li>
+<li><strong>Prefer placeholders</strong> in remote URLs and headers (<code>$NAME</code> / <code>${NAME}</code>) instead of hardcoding secrets repeatedly</li>
 <li><strong>Network isolation</strong> — run untrusted servers in containers</li>
 </ul>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>

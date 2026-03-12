@@ -237,6 +237,7 @@ priority_models = ["gpt-5.2"]
 mode = "all"                    # "off", "non-main", or "all"
 scope = "session"               # "command", "session", or "global"
 workspace_mount = "ro"          # "ro", "rw", or "none"
+# host_data_dir = "/host/path/data"  # Optional override if auto-detection cannot resolve the host path
 home_persistence = "shared"     # "off", "session", or "shared" (default: "shared")
 # shared_home_dir = "/path/to/shared-home"  # Optional path for shared mode
 backend = "auto"                # "auto", "docker", or "apple-container"
@@ -255,6 +256,10 @@ packages = [
     "golang-go",
 ]
 </code></pre>
+<p>If Moltis runs inside Docker and also mounts the host container socket
+(<code>/var/run/docker.sock</code>), Moltis now auto-detects the host path backing
+<code>/home/moltis/.moltis</code> from the parent container’s mount table. If that
+inspection cannot resolve the correct path, set <code>host_data_dir</code> explicitly.</p>
 <div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
 <div class="admonition-title">
 <div id="admonition-info-title">
@@ -349,12 +354,20 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed"]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
 env = { GITHUB_TOKEN = "ghp_..." }
+
+[mcp.servers.remote_api]
+transport = "sse"
+url = "https://mcp.example.com/mcp?api_key=$REMOTE_MCP_KEY"
+headers = { Authorization = "Bearer ${REMOTE_MCP_TOKEN}" }
 </code></pre>
+<p>Remote MCP URLs and headers support <code>$NAME</code> or <code>${NAME}</code> placeholders. For live remote servers, values resolve from Moltis-managed env overrides, either <code>[env]</code> in config or <strong>Settings</strong> → <strong>Environment Variables</strong>.</p>
 <h2 id="telegram-integration"><a class="header" href="#telegram-integration">Telegram Integration</a></h2>
 <pre><code class="language-toml">[channels.telegram.my-bot]
 token = "123456:ABC..."
-allowed_users = [123456789]     # Telegram user IDs allowed to chat
+dm_policy = "allowlist"
+allowlist = ["123456789"]       # Telegram user IDs or usernames (strings)
 </code></pre>
+<p>See <a href="telegram.html">Telegram</a> for full configuration reference and setup instructions.</p>
 <h2 id="discord-integration"><a class="header" href="#discord-integration">Discord Integration</a></h2>
 <pre><code class="language-toml">[channels]
 offered = ["telegram", "discord"]
@@ -366,6 +379,17 @@ mention_mode = "mention"
 allowlist = ["your_username"]
 </code></pre>
 <p>See <a href="discord.html">Discord</a> for full configuration reference and setup instructions.</p>
+<h2 id="slack-integration"><a class="header" href="#slack-integration">Slack Integration</a></h2>
+<pre><code class="language-toml">[channels]
+offered = ["slack"]
+
+[channels.slack.my-bot]
+bot_token = "xoxb-..."
+app_token = "xapp-..."
+dm_policy = "allowlist"
+allowlist = ["U123456789"]
+</code></pre>
+<p>See <a href="slack.html">Slack</a> for full configuration reference and setup instructions.</p>
 <h2 id="tls--https"><a class="header" href="#tls--https">TLS / HTTPS</a></h2>
 <pre><code class="language-toml">[tls]
 enabled = true

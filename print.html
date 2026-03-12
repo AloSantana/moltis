@@ -734,6 +734,7 @@ priority_models = ["gpt-5.2"]
 mode = "all"                    # "off", "non-main", or "all"
 scope = "session"               # "command", "session", or "global"
 workspace_mount = "ro"          # "ro", "rw", or "none"
+# host_data_dir = "/host/path/data"  # Optional override if auto-detection cannot resolve the host path
 home_persistence = "shared"     # "off", "session", or "shared" (default: "shared")
 # shared_home_dir = "/path/to/shared-home"  # Optional path for shared mode
 backend = "auto"                # "auto", "docker", or "apple-container"
@@ -752,6 +753,10 @@ packages = [
     "golang-go",
 ]
 </code></pre>
+<p>If Moltis runs inside Docker and also mounts the host container socket
+(<code>/var/run/docker.sock</code>), Moltis now auto-detects the host path backing
+<code>/home/moltis/.moltis</code> from the parent container’s mount table. If that
+inspection cannot resolve the correct path, set <code>host_data_dir</code> explicitly.</p>
 <div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
 <div class="admonition-title">
 <div id="admonition-info-title">
@@ -846,12 +851,20 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed"]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
 env = { GITHUB_TOKEN = "ghp_..." }
+
+[mcp.servers.remote_api]
+transport = "sse"
+url = "https://mcp.example.com/mcp?api_key=$REMOTE_MCP_KEY"
+headers = { Authorization = "Bearer ${REMOTE_MCP_TOKEN}" }
 </code></pre>
+<p>Remote MCP URLs and headers support <code>$NAME</code> or <code>${NAME}</code> placeholders. For live remote servers, values resolve from Moltis-managed env overrides, either <code>[env]</code> in config or <strong>Settings</strong> → <strong>Environment Variables</strong>.</p>
 <h2 id="telegram-integration"><a class="header" href="#telegram-integration">Telegram Integration</a></h2>
 <pre><code class="language-toml">[channels.telegram.my-bot]
 token = "123456:ABC..."
-allowed_users = [123456789]     # Telegram user IDs allowed to chat
+dm_policy = "allowlist"
+allowlist = ["123456789"]       # Telegram user IDs or usernames (strings)
 </code></pre>
+<p>See <a href="telegram.html">Telegram</a> for full configuration reference and setup instructions.</p>
 <h2 id="discord-integration"><a class="header" href="#discord-integration">Discord Integration</a></h2>
 <pre><code class="language-toml">[channels]
 offered = ["telegram", "discord"]
@@ -863,6 +876,17 @@ mention_mode = "mention"
 allowlist = ["your_username"]
 </code></pre>
 <p>See <a href="discord.html">Discord</a> for full configuration reference and setup instructions.</p>
+<h2 id="slack-integration"><a class="header" href="#slack-integration">Slack Integration</a></h2>
+<pre><code class="language-toml">[channels]
+offered = ["slack"]
+
+[channels.slack.my-bot]
+bot_token = "xoxb-..."
+app_token = "xapp-..."
+dm_policy = "allowlist"
+allowlist = ["U123456789"]
+</code></pre>
+<p>See <a href="slack.html">Slack</a> for full configuration reference and setup instructions.</p>
 <h2 id="tls--https"><a class="header" href="#tls--https">TLS / HTTPS</a></h2>
 <pre><code class="language-toml">[tls]
 enabled = true
@@ -1440,9 +1464,10 @@ field on <code>OAuthConfig</code>), so adding support would be straightforward.<
 <ol>
 <li>Go to <strong>Settings</strong> → <strong>MCP Servers</strong></li>
 <li>Click <strong>Add Server</strong></li>
-<li>Enter the server configuration</li>
+<li>For remote Streamable HTTP servers, enter the server URL and any optional request headers</li>
 <li>Click <strong>Save</strong></li>
 </ol>
+<p>After saving a remote server, Moltis only shows a sanitized URL plus header names/count in the UI and status views. Stored header values stay hidden.</p>
 <h3 id="via-configuration"><a class="header" href="#via-configuration">Via Configuration</a></h3>
 <p>Add servers to <code>moltis.toml</code>:</p>
 <pre><code class="language-toml">[mcp.servers.filesystem]
@@ -1455,9 +1480,11 @@ args = ["-y", "@modelcontextprotocol/server-github"]
 env = { GITHUB_TOKEN = "ghp_..." }
 
 [mcp.servers.remote_api]
-url = "https://mcp.example.com/mcp"
 transport = "sse"
+url = "https://mcp.example.com/mcp?api_key=$REMOTE_MCP_KEY"
+headers = { Authorization = "Bearer ${REMOTE_MCP_TOKEN}" }
 </code></pre>
+<p>Remote URLs and headers support <code>$NAME</code> and <code>${NAME}</code> placeholders. For live remote servers, placeholder values resolve from Moltis-managed env overrides, either <code>[env]</code> in config or <strong>Settings</strong> → <strong>Environment Variables</strong>.</p>
 <h2 id="popular-mcp-servers"><a class="header" href="#popular-mcp-servers">Popular MCP Servers</a></h2>
 <h3 id="official-servers"><a class="header" href="#official-servers">Official Servers</a></h3>
 <div class="table-wrapper"><table><thead><tr><th>Server</th><th>Description</th><th>Install</th></tr></thead><tbody>
@@ -1482,7 +1509,24 @@ env = { API_KEY = "secret", DEBUG = "true" }
 # Optional: remote transport
 transport = "sse"               # "stdio" (default) or "sse"
 url = "https://mcp.example.com/mcp"  # Required when transport = "sse"
+headers = { "x-api-key" = "$REMOTE_MCP_KEY" }  # Optional request headers
 </code></pre>
+<h2 id="remote-sse-secrets-and-placeholders"><a class="header" href="#remote-sse-secrets-and-placeholders">Remote SSE Secrets and Placeholders</a></h2>
+<p>Remote MCP servers often expect API keys or bearer tokens in the URL query string or request headers. Moltis supports both patterns.</p>
+<pre><code class="language-toml">[mcp.servers.linear_remote]
+transport = "sse"
+url = "https://mcp.example.com/mcp?api_key=$REMOTE_MCP_KEY"
+headers = {
+  Authorization = "Bearer ${REMOTE_MCP_TOKEN}",
+  "x-workspace" = "team-a",
+}
+</code></pre>
+<ul>
+<li>Use <code>$NAME</code> or <code>${NAME}</code> placeholders in remote <code>url</code> and <code>headers</code></li>
+<li>Placeholder values resolve from Moltis-managed env overrides, either <code>[env]</code> in config or <strong>Settings</strong> → <strong>Environment Variables</strong></li>
+<li>UI and API status payloads only expose sanitized URLs plus header names/count, not raw header values</li>
+<li>Query-string secrets are redacted when Moltis displays a remote URL after save</li>
+</ul>
 <h2 id="server-lifecycle"><a class="header" href="#server-lifecycle">Server Lifecycle</a></h2>
 <pre><code>┌─────────────────────────────────────────────────────┐
 │                   MCP Server                         │
@@ -1564,6 +1608,7 @@ args = ["server.js"]
 <ul>
 <li>Connection status (connected/disconnected/error)</li>
 <li>Available tools</li>
+<li>Sanitized remote URL and configured header names</li>
 <li>Recent errors</li>
 </ul>
 <h3 id="view-logs"><a class="header" href="#view-logs">View Logs</a></h3>
@@ -1617,6 +1662,7 @@ scopes = ["mcp:read", "mcp:write"]
 <li><strong>Review server code</strong> before running</li>
 <li><strong>Limit file access</strong> — use specific paths, not <code>/</code></li>
 <li><strong>Use environment variables</strong> for secrets</li>
+<li><strong>Prefer placeholders</strong> in remote URLs and headers (<code>$NAME</code> / <code>${NAME}</code>) instead of hardcoding secrets repeatedly</li>
 <li><strong>Network isolation</strong> — run untrusted servers in containers</li>
 </ul>
 <h2 id="troubleshooting-1"><a class="header" href="#troubleshooting-1">Troubleshooting</a></h2>
@@ -2899,6 +2945,19 @@ home_persistence = "session"   # "off", "session", or "shared" (default)
 (defaults to <code>data_dir()/sandbox/home/shared</code>, or <code>shared_home_dir</code> if set)</li>
 </ul>
 <p>Moltis stores persisted homes under <code>data_dir()/sandbox/home/</code>.</p>
+<h2 id="docker-in-docker-workspace-mounts"><a class="header" href="#docker-in-docker-workspace-mounts">Docker-in-Docker workspace mounts</a></h2>
+<p>When Moltis runs inside a container and launches Docker-backed sandboxes via a
+mounted container socket, the sandbox bind mount source must be a host-visible
+path. Moltis auto-detects this by inspecting the parent container’s mounts. If
+that lookup fails or you want to pin the value explicitly, set
+<code>host_data_dir</code>:</p>
+<pre><code class="language-toml">[tools.exec.sandbox]
+host_data_dir = "/srv/moltis/data"
+</code></pre>
+<p>This remaps sandbox workspace mounts and default sandbox persistence paths from
+the guest <code>data_dir()</code> to the host path you provide. It is mainly an override
+for Docker-in-Docker deployments where mount auto-detection is unavailable or
+ambiguous.</p>
 <h2 id="network-policy"><a class="header" href="#network-policy">Network policy</a></h2>
 <p>By default, sandbox containers have no network access (<code>no_network = true</code>).
 For tasks that need filtered internet access, use
@@ -3738,13 +3797,317 @@ app_token = "xapp-..."
 [channels.whatsapp.my_wa]
 dm_policy = "open"
 </code></pre>
-<p>See the web UI’s <strong>Channels</strong> tab for guided setup with each platform.</p>
+<p>For detailed configuration, see the per-channel pages:
+<a href="telegram.html">Telegram</a>, <a href="discord.html">Discord</a>, <a href="slack.html">Slack</a>,
+<a href="whatsapp.html">WhatsApp</a>.</p>
+<p>You can also use the web UI’s <strong>Channels</strong> tab for guided setup with each platform.</p>
+<h2 id="access-control"><a class="header" href="#access-control">Access Control</a></h2>
+<p>All channels share the same access control model with three settings:</p>
+<h3 id="dm-policy"><a class="header" href="#dm-policy">DM Policy</a></h3>
+<p>Controls who can send direct messages to the bot.</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"allowlist"</code></td><td>Only users listed in <code>allowlist</code> can DM (<strong>default for all channels except WhatsApp</strong>)</td></tr>
+<tr><td><code>"open"</code></td><td>Anyone can DM the bot</td></tr>
+<tr><td><code>"disabled"</code></td><td>DMs are silently ignored</td></tr>
+</tbody></table>
+</div><div id="admonition-empty-allowlist-blocks-everyone" class="admonition admonish-warning" role="note" aria-labelledby="admonition-empty-allowlist-blocks-everyone-title">
+<div class="admonition-title">
+<div id="admonition-empty-allowlist-blocks-everyone-title">
+<p>Empty allowlist blocks everyone</p>
+</div>
+<a class="admonition-anchor-link" href="channels.html#admonition-empty-allowlist-blocks-everyone"></a>
+</div>
+<div>
+<p>When <code>dm_policy = "allowlist"</code> with an empty <code>allowlist</code>, <strong>all DMs are blocked</strong>.
+This is a security feature — removing all entries from an allowlist never silently
+switches to open access. Add user IDs/usernames to <code>allowlist</code> or set
+<code>dm_policy = "open"</code>.</p>
+</div>
+</div>
+<h3 id="group-policy"><a class="header" href="#group-policy">Group Policy</a></h3>
+<p>Controls who can interact with the bot in group chats / channels / guilds.</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"open"</code></td><td>Bot responds in all groups (default)</td></tr>
+<tr><td><code>"allowlist"</code></td><td>Only groups on the allowlist are allowed</td></tr>
+<tr><td><code>"disabled"</code></td><td>Group messages are silently ignored</td></tr>
+</tbody></table>
+</div>
+<p>The group allowlist field name varies by channel: <code>group_allowlist</code> (Telegram,
+WhatsApp, MS Teams), <code>guild_allowlist</code> (Discord), <code>channel_allowlist</code> (Slack).</p>
+<h3 id="mention-mode"><a class="header" href="#mention-mode">Mention Mode</a></h3>
+<p>Controls when the bot responds in groups (does not apply to DMs).</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"mention"</code></td><td>Bot only responds when @mentioned (default)</td></tr>
+<tr><td><code>"always"</code></td><td>Bot responds to every message</td></tr>
+<tr><td><code>"none"</code></td><td>Bot never responds in groups (DM-only)</td></tr>
+</tbody></table>
+</div>
+<h3 id="allowlist-matching"><a class="header" href="#allowlist-matching">Allowlist Matching</a></h3>
+<p>All allowlist fields across all channels share the same matching behavior:</p>
+<ul>
+<li><strong>Values are strings</strong> — even for numeric IDs, use <code>"123456789"</code> not <code>123456789</code></li>
+<li><strong>Case-insensitive</strong> — <code>"Alice"</code> matches <code>"alice"</code></li>
+<li><strong>Glob wildcards</strong> — <code>"admin_*"</code>, <code>"*@example.com"</code>, <code>"user_*_vip"</code></li>
+<li><strong>Multiple identifiers</strong> — both the user’s numeric ID and username are checked (where applicable)</li>
+</ul>
+<h3 id="otp-self-approval"><a class="header" href="#otp-self-approval">OTP Self-Approval</a></h3>
+<p>Channels that support OTP (Telegram, Discord, WhatsApp) allow non-allowlisted
+users to self-approve by entering a 6-digit code. The code appears in the web UI
+under <strong>Channels &gt; Senders</strong>. See each channel’s page for details.</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>otp_self_approval</code></td><td><code>true</code></td><td>Enable OTP challenges for non-allowlisted DM users</td></tr>
+<tr><td><code>otp_cooldown_secs</code></td><td><code>300</code></td><td>Lockout duration after 3 failed attempts</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="telegram"><a class="header" href="#telegram">Telegram</a></h1>
+<p>Moltis can connect to Telegram as a bot, letting you chat with your agent from
+any Telegram conversation. The integration uses Telegram’s
+<a href="https://core.telegram.org/bots/api">Bot API</a> with long polling — no public URL
+or webhook endpoint is required.</p>
+<h2 id="how-it-works-4"><a class="header" href="#how-it-works-4">How It Works</a></h2>
+<pre><code>┌──────────────────────────────────────────────────────┐
+│                 Telegram Bot API                      │
+│            (api.telegram.org/bot...)                  │
+└──────────────────┬───────────────────────────────────┘
+                   │  long polling (getUpdates)
+                   ▼
+┌──────────────────────────────────────────────────────┐
+│              moltis-telegram crate                    │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────┐  │
+│  │  Handler   │  │  Outbound  │  │     Plugin     │  │
+│  │ (inbound)  │  │ (replies)  │  │  (lifecycle)   │  │
+│  └────────────┘  └────────────┘  └────────────────┘  │
+└──────────────────┬───────────────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────────────┐
+│                 Moltis Gateway                        │
+│         (chat dispatch, tools, memory)                │
+└──────────────────────────────────────────────────────┘
+</code></pre>
+<p>The bot connects <strong>outward</strong> to Telegram’s servers via polling. No port
+forwarding, public domain, or TLS certificate is needed. This makes it easy to
+run on a home machine or behind a NAT.</p>
+<h2 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h2>
+<p>Before configuring Moltis, create a Telegram bot:</p>
+<ol>
+<li>Open Telegram and message <a href="https://t.me/BotFather">@BotFather</a></li>
+<li>Send <code>/newbot</code> and follow the prompts to choose a name and username</li>
+<li>Copy the bot token (e.g. <code>123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11</code>)</li>
+</ol>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="telegram.html#admonition-warning"></a>
+</div>
+<div>
+<p>The bot token is a secret — treat it like a password. Never commit it to
+version control. Moltis stores it with <code>secrecy::Secret</code> and redacts it from
+logs, but your <code>moltis.toml</code> file is plain text on disk. Consider using
+<a href="vault.html">Vault</a> for encryption at rest.</p>
+</div>
+</div>
+<h2 id="configuration-9"><a class="header" href="#configuration-9">Configuration</a></h2>
+<p>Add a <code>[channels.telegram.&lt;account-id&gt;]</code> section to your <code>moltis.toml</code>:</p>
+<pre><code class="language-toml">[channels.telegram.my-bot]
+token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+</code></pre>
+<p>Make sure <code>"telegram"</code> is included in <code>channels.offered</code> so the Web UI shows
+the Telegram option:</p>
+<pre><code class="language-toml">[channels]
+offered = ["telegram"]
+</code></pre>
+<h3 id="configuration-fields"><a class="header" href="#configuration-fields">Configuration Fields</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Required</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>token</code></td><td><strong>yes</strong></td><td>—</td><td>Bot token from @BotFather</td></tr>
+<tr><td><code>dm_policy</code></td><td>no</td><td><code>"allowlist"</code></td><td>Who can DM the bot: <code>"open"</code>, <code>"allowlist"</code>, or <code>"disabled"</code></td></tr>
+<tr><td><code>group_policy</code></td><td>no</td><td><code>"open"</code></td><td>Who can talk to the bot in groups: <code>"open"</code>, <code>"allowlist"</code>, or <code>"disabled"</code></td></tr>
+<tr><td><code>mention_mode</code></td><td>no</td><td><code>"mention"</code></td><td>When the bot responds in groups: <code>"always"</code>, <code>"mention"</code> (only when @mentioned), or <code>"none"</code></td></tr>
+<tr><td><code>allowlist</code></td><td>no</td><td><code>[]</code></td><td>User IDs or usernames allowed to DM the bot (when <code>dm_policy = "allowlist"</code>)</td></tr>
+<tr><td><code>group_allowlist</code></td><td>no</td><td><code>[]</code></td><td>Group/chat IDs allowed to interact with the bot</td></tr>
+<tr><td><code>model</code></td><td>no</td><td>—</td><td>Override the default model for this channel</td></tr>
+<tr><td><code>model_provider</code></td><td>no</td><td>—</td><td>Provider for the overridden model</td></tr>
+<tr><td><code>reply_to_message</code></td><td>no</td><td><code>false</code></td><td>Send bot responses as Telegram replies to the user’s message</td></tr>
+<tr><td><code>otp_self_approval</code></td><td>no</td><td><code>true</code></td><td>Enable OTP self-approval for non-allowlisted DM users</td></tr>
+<tr><td><code>otp_cooldown_secs</code></td><td>no</td><td><code>300</code></td><td>Cooldown in seconds after 3 failed OTP attempts</td></tr>
+<tr><td><code>stream_mode</code></td><td>no</td><td><code>"edit_in_place"</code></td><td>Streaming mode: <code>"edit_in_place"</code> or <code>"off"</code></td></tr>
+<tr><td><code>edit_throttle_ms</code></td><td>no</td><td><code>300</code></td><td>Minimum milliseconds between streaming edit updates</td></tr>
+<tr><td><code>stream_notify_on_complete</code></td><td>no</td><td><code>false</code></td><td>Send a completion notification after streaming finishes</td></tr>
+<tr><td><code>stream_min_initial_chars</code></td><td>no</td><td><code>30</code></td><td>Minimum characters before sending the first streamed message</td></tr>
+</tbody></table>
+</div><div id="admonition-allowlist-values-are-strings" class="admonition admonish-tip" role="note" aria-labelledby="admonition-allowlist-values-are-strings-title">
+<div class="admonition-title">
+<div id="admonition-allowlist-values-are-strings-title">
+<p>Allowlist values are strings</p>
+</div>
+<a class="admonition-anchor-link" href="telegram.html#admonition-allowlist-values-are-strings"></a>
+</div>
+<div>
+<p>All allowlist entries must be <strong>strings</strong>, even for numeric Telegram user IDs.
+Write <code>allowlist = ["123456789"]</code>, not <code>allowlist = [123456789]</code>.
+Both numeric user IDs and usernames are supported — the bot checks both when
+evaluating access.</p>
+</div>
+</div>
+<h3 id="full-example"><a class="header" href="#full-example">Full Example</a></h3>
+<pre><code class="language-toml">[channels]
+offered = ["telegram"]
+
+[channels.telegram.my-bot]
+token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+dm_policy = "allowlist"
+group_policy = "open"
+mention_mode = "mention"
+allowlist = ["123456789", "alice_username"]
+group_allowlist = ["-1001234567890"]
+reply_to_message = true
+model = "claude-sonnet-4-20250514"
+model_provider = "anthropic"
+otp_self_approval = true
+stream_mode = "edit_in_place"
+edit_throttle_ms = 300
+</code></pre>
+<h3 id="per-user-and-per-channel-model-overrides"><a class="header" href="#per-user-and-per-channel-model-overrides">Per-User and Per-Channel Model Overrides</a></h3>
+<p>You can override the model for specific users or group chats:</p>
+<pre><code class="language-toml">[channels.telegram.my-bot]
+token = "..."
+model = "claude-sonnet-4-20250514"
+model_provider = "anthropic"
+
+[channels.telegram.my-bot.channel_overrides."-1001234567890"]
+model = "gpt-4o"
+model_provider = "openai"
+
+[channels.telegram.my-bot.user_overrides."123456789"]
+model = "claude-opus-4-20250514"
+model_provider = "anthropic"
+</code></pre>
+<p>User overrides take priority over channel overrides, which take priority over
+the account default.</p>
+<h2 id="access-control-1"><a class="header" href="#access-control-1">Access Control</a></h2>
+<p>Telegram uses the same gating system as Discord and other channels.</p>
+<h3 id="dm-policy-1"><a class="header" href="#dm-policy-1">DM Policy</a></h3>
+<p>Controls who can send direct messages to the bot.</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"allowlist"</code></td><td>Only users listed in <code>allowlist</code> can DM (default)</td></tr>
+<tr><td><code>"open"</code></td><td>Anyone who can find the bot can DM it</td></tr>
+<tr><td><code>"disabled"</code></td><td>DMs are silently ignored</td></tr>
+</tbody></table>
+</div><div id="admonition-default-denies-unlisted-users" class="admonition admonish-warning" role="note" aria-labelledby="admonition-default-denies-unlisted-users-title">
+<div class="admonition-title">
+<div id="admonition-default-denies-unlisted-users-title">
+<p>Default denies unlisted users</p>
+</div>
+<a class="admonition-anchor-link" href="telegram.html#admonition-default-denies-unlisted-users"></a>
+</div>
+<div>
+<p>The default <code>dm_policy</code> is <code>"allowlist"</code>. With an empty <code>allowlist</code>, <strong>all DMs
+are blocked</strong>. You must either add entries to <code>allowlist</code> or set
+<code>dm_policy = "open"</code>.</p>
+</div>
+</div>
+<h3 id="group-policy-1"><a class="header" href="#group-policy-1">Group Policy</a></h3>
+<p>Controls who can interact with the bot in group chats.</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"open"</code></td><td>Bot responds in any group (default)</td></tr>
+<tr><td><code>"allowlist"</code></td><td>Only groups listed in <code>group_allowlist</code> are allowed</td></tr>
+<tr><td><code>"disabled"</code></td><td>Group messages are silently ignored</td></tr>
+</tbody></table>
+</div>
+<h3 id="mention-mode-1"><a class="header" href="#mention-mode-1">Mention Mode</a></h3>
+<p>Controls when the bot responds in groups (does not apply to DMs).</p>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"mention"</code></td><td>Bot only responds when @mentioned (default)</td></tr>
+<tr><td><code>"always"</code></td><td>Bot responds to every message in allowed groups</td></tr>
+<tr><td><code>"none"</code></td><td>Bot never responds in groups (useful for DM-only bots)</td></tr>
+</tbody></table>
+</div>
+<h3 id="allowlist-matching-1"><a class="header" href="#allowlist-matching-1">Allowlist Matching</a></h3>
+<p>Allowlist entries support:</p>
+<ul>
+<li><strong>Exact match</strong> (case-insensitive): <code>"alice"</code>, <code>"123456789"</code></li>
+<li><strong>Glob wildcards</strong>: <code>"admin_*"</code>, <code>"*_bot"</code>, <code>"user_*_vip"</code></li>
+</ul>
+<p>Both the user’s <strong>numeric Telegram ID</strong> and their <strong>username</strong> are checked
+against the allowlist. For example, if a user has ID <code>123456789</code> and username
+<code>alice</code>, either <code>"123456789"</code> or <code>"alice"</code> in the allowlist grants access.</p>
+<h3 id="otp-self-approval-1"><a class="header" href="#otp-self-approval-1">OTP Self-Approval</a></h3>
+<p>When <code>dm_policy = "allowlist"</code> and <code>otp_self_approval = true</code> (the default),
+unknown users who DM the bot receive a verification challenge:</p>
+<ol>
+<li>User sends a DM to the bot</li>
+<li>Bot responds with a challenge prompt (the 6-digit code is <strong>not</strong> shown to the user)</li>
+<li>The code appears in the Moltis web UI under <strong>Channels &gt; Senders</strong></li>
+<li>The bot owner shares the code with the user out-of-band</li>
+<li>User replies with the 6-digit code</li>
+<li>On success, the user is automatically added to the allowlist</li>
+</ol>
+<p>After 3 failed attempts, the user is locked out for <code>otp_cooldown_secs</code> seconds
+(default: 300). Codes expire after 5 minutes.</p>
+<p>Set <code>otp_self_approval = false</code> if you want to manually approve every user from
+the web UI.</p>
+<h2 id="streaming"><a class="header" href="#streaming">Streaming</a></h2>
+<p>By default (<code>stream_mode = "edit_in_place"</code>), the bot sends an initial message
+after <code>stream_min_initial_chars</code> characters (default: 30) and then edits it
+in place as tokens arrive, throttled to at most one edit every
+<code>edit_throttle_ms</code> milliseconds (default: 300).</p>
+<p>Set <code>stream_mode = "off"</code> to disable streaming and send the full response as a
+single message.</p>
+<p>When <code>stream_notify_on_complete = true</code>, the bot sends a short non-silent
+message after streaming finishes. This can trigger a Telegram push notification
+on the user’s device (since silent edits don’t always trigger notifications).</p>
+<h2 id="finding-your-telegram-user-id"><a class="header" href="#finding-your-telegram-user-id">Finding Your Telegram User ID</a></h2>
+<p>To find your numeric Telegram user ID (for the <code>allowlist</code>):</p>
+<ol>
+<li>Message <a href="https://t.me/userinfobot">@userinfobot</a> on Telegram</li>
+<li>It replies with your user ID, first name, and username</li>
+<li>Use the numeric ID as a string in your config: <code>allowlist = ["123456789"]</code></li>
+</ol>
+<p>Alternatively, use your Telegram username (without the <code>@</code>): <code>allowlist = ["your_username"]</code>.</p>
+<h2 id="web-ui-setup"><a class="header" href="#web-ui-setup">Web UI Setup</a></h2>
+<p>You can also configure Telegram through the web interface:</p>
+<ol>
+<li>Open <strong>Settings &gt; Channels</strong></li>
+<li>Click <strong>Connect Telegram</strong></li>
+<li>Enter an account ID (any alias) and your bot token</li>
+<li>Adjust DM policy, mention mode, and allowlist as needed</li>
+<li>Click <strong>Connect</strong></li>
+</ol>
+<p>The same form is available during onboarding when Telegram is in <code>channels.offered</code>.</p>
+<h2 id="troubleshooting-5"><a class="header" href="#troubleshooting-5">Troubleshooting</a></h2>
+<h3 id="bot-doesnt-respond"><a class="header" href="#bot-doesnt-respond">Bot doesn’t respond</a></h3>
+<ul>
+<li>Verify the bot token is correct (ask @BotFather for <code>/token</code> if unsure)</li>
+<li>Check <code>dm_policy</code> — if set to <code>"allowlist"</code>, make sure your user ID or
+username is listed in <code>allowlist</code></li>
+<li>An empty <code>allowlist</code> with <code>dm_policy = "allowlist"</code> blocks <strong>all</strong> DMs</li>
+<li>Check <code>group_policy</code> — if <code>"disabled"</code>, group messages are ignored</li>
+<li>Look at logs: <code>RUST_LOG=moltis_telegram=debug moltis</code></li>
+</ul>
+<h3 id="allowed_users-doesnt-work"><a class="header" href="#allowed_users-doesnt-work">“allowed_users” doesn’t work</a></h3>
+<p>The field name is <code>allowlist</code>, not <code>allowed_users</code>. If you’re migrating from
+OpenClaw, note that the field was renamed. Values must also be <strong>strings</strong>
+(e.g. <code>["123456789"]</code>), not integers.</p>
+<h3 id="bot-responds-to-everyone"><a class="header" href="#bot-responds-to-everyone">Bot responds to everyone</a></h3>
+<ul>
+<li>Check that <code>dm_policy = "allowlist"</code> is set (it’s the default)</li>
+<li>Verify you have entries in <code>allowlist</code> — an empty allowlist with
+<code>dm_policy = "allowlist"</code> blocks everyone, but <code>dm_policy = "open"</code> allows
+everyone</li>
+</ul>
+<h3 id="bot-doesnt-respond-in-groups"><a class="header" href="#bot-doesnt-respond-in-groups">Bot doesn’t respond in groups</a></h3>
+<ul>
+<li>Check <code>mention_mode</code> — if set to <code>"mention"</code>, you must @mention the bot</li>
+<li>Check <code>group_policy</code> — if <code>"disabled"</code>, group messages are ignored</li>
+<li>Check <code>group_allowlist</code> — if non-empty, the group must be listed</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="discord"><a class="header" href="#discord">Discord</a></h1>
 <p>Moltis can connect to Discord as a bot, letting you chat with your agent from
 any Discord server or DM. The integration uses Discord’s
 <a href="https://discord.com/developers/docs/events/gateway">Gateway API</a> via a
 persistent WebSocket connection — no public URL or webhook endpoint is required.</p>
-<h2 id="how-it-works-4"><a class="header" href="#how-it-works-4">How It Works</a></h2>
+<h2 id="how-it-works-5"><a class="header" href="#how-it-works-5">How It Works</a></h2>
 <pre><code>┌──────────────────────────────────────────────────────┐
 │                   Discord Gateway                     │
 │              (wss://gateway.discord.gg)               │
@@ -3769,7 +4132,7 @@ persistent WebSocket connection — no public URL or webhook endpoint is require
 (which requires an inbound webhook), Discord needs no port forwarding, no
 public domain, and no TLS certificate. This makes it especially easy to run
 on a home machine or behind a NAT.</p>
-<h2 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h2>
+<h2 id="prerequisites-2"><a class="header" href="#prerequisites-2">Prerequisites</a></h2>
 <p>Before configuring Moltis, create a Discord bot:</p>
 <ol>
 <li>Go to the <a href="https://discord.com/developers/applications">Discord Developer Portal</a></li>
@@ -3799,7 +4162,7 @@ logs, but your <code>moltis.toml</code> file is plain text on disk. Consider usi
 <a href="vault.html">Vault</a> for encryption at rest.</p>
 </div>
 </div>
-<h2 id="configuration-9"><a class="header" href="#configuration-9">Configuration</a></h2>
+<h2 id="configuration-10"><a class="header" href="#configuration-10">Configuration</a></h2>
 <p>Add a <code>[channels.discord.&lt;account-id&gt;]</code> section to your <code>moltis.toml</code>:</p>
 <pre><code class="language-toml">[channels.discord.my-bot]
 token = "MTIzNDU2Nzg5.example.bot-token"
@@ -3809,7 +4172,7 @@ the Discord option:</p>
 <pre><code class="language-toml">[channels]
 offered = ["telegram", "discord"]
 </code></pre>
-<h3 id="configuration-fields"><a class="header" href="#configuration-fields">Configuration Fields</a></h3>
+<h3 id="configuration-fields-1"><a class="header" href="#configuration-fields-1">Configuration Fields</a></h3>
 <div class="table-wrapper"><table><thead><tr><th>Field</th><th>Required</th><th>Default</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>token</code></td><td><strong>yes</strong></td><td>—</td><td>Discord bot token from the Developer Portal</td></tr>
 <tr><td><code>dm_policy</code></td><td>no</td><td><code>"allowlist"</code></td><td>Who can DM the bot: <code>"open"</code>, <code>"allowlist"</code>, or <code>"disabled"</code></td></tr>
@@ -3828,7 +4191,7 @@ offered = ["telegram", "discord"]
 <tr><td><code>otp_cooldown_secs</code></td><td>no</td><td><code>300</code></td><td>Cooldown in seconds after 3 failed OTP attempts</td></tr>
 </tbody></table>
 </div>
-<h3 id="full-example"><a class="header" href="#full-example">Full Example</a></h3>
+<h3 id="full-example-1"><a class="header" href="#full-example-1">Full Example</a></h3>
 <pre><code class="language-toml">[channels]
 offered = ["telegram", "discord"]
 
@@ -3848,9 +4211,9 @@ activity_type = "custom"
 status = "online"
 otp_self_approval = true
 </code></pre>
-<h2 id="access-control"><a class="header" href="#access-control">Access Control</a></h2>
+<h2 id="access-control-2"><a class="header" href="#access-control-2">Access Control</a></h2>
 <p>Discord uses the same gating system as Telegram and Microsoft Teams:</p>
-<h3 id="dm-policy"><a class="header" href="#dm-policy">DM Policy</a></h3>
+<h3 id="dm-policy-2"><a class="header" href="#dm-policy-2">DM Policy</a></h3>
 <p>Controls who can send direct messages to the bot.</p>
 <div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
 <tr><td><code>"allowlist"</code></td><td>Only users listed in <code>allowlist</code> can DM (default)</td></tr>
@@ -3858,7 +4221,7 @@ otp_self_approval = true
 <tr><td><code>"disabled"</code></td><td>DMs are silently ignored</td></tr>
 </tbody></table>
 </div>
-<h3 id="group-policy"><a class="header" href="#group-policy">Group Policy</a></h3>
+<h3 id="group-policy-2"><a class="header" href="#group-policy-2">Group Policy</a></h3>
 <p>Controls who can interact with the bot in guild (server) channels.</p>
 <div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
 <tr><td><code>"open"</code></td><td>Bot responds in any guild channel (default)</td></tr>
@@ -3866,7 +4229,7 @@ otp_self_approval = true
 <tr><td><code>"disabled"</code></td><td>Guild messages are silently ignored</td></tr>
 </tbody></table>
 </div>
-<h3 id="mention-mode"><a class="header" href="#mention-mode">Mention Mode</a></h3>
+<h3 id="mention-mode-2"><a class="header" href="#mention-mode-2">Mention Mode</a></h3>
 <p>Controls when the bot responds in guild channels (does not apply to DMs).</p>
 <div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
 <tr><td><code>"mention"</code></td><td>Bot only responds when @mentioned (default)</td></tr>
@@ -3878,7 +4241,7 @@ otp_self_approval = true
 <p>If <code>guild_allowlist</code> is non-empty, messages from guilds <strong>not</strong> in the list are
 silently dropped — regardless of <code>group_policy</code>. This provides a server-level
 filter on top of the channel-level policy.</p>
-<h3 id="otp-self-approval"><a class="header" href="#otp-self-approval">OTP Self-Approval</a></h3>
+<h3 id="otp-self-approval-2"><a class="header" href="#otp-self-approval-2">OTP Self-Approval</a></h3>
 <p>When <code>dm_policy = "allowlist"</code> and <code>otp_self_approval = true</code> (the default),
 unknown users who DM the bot receive a verification challenge. The flow:</p>
 <ol>
@@ -3943,7 +4306,7 @@ work alongside native slash commands. The native commands provide autocomplete a
 a better Discord-native experience.</p>
 </div>
 </div>
-<h2 id="web-ui-setup"><a class="header" href="#web-ui-setup">Web UI Setup</a></h2>
+<h2 id="web-ui-setup-1"><a class="header" href="#web-ui-setup-1">Web UI Setup</a></h2>
 <p>You can also configure Discord through the web interface:</p>
 <ol>
 <li>Open <strong>Settings → Channels</strong></li>
@@ -4057,8 +4420,8 @@ and is working on a reply.</p>
 <tr><td><code>ChannelStatus</code></td><td>Health probes (connected / disconnected)</td></tr>
 </tbody></table>
 </div>
-<h2 id="troubleshooting-5"><a class="header" href="#troubleshooting-5">Troubleshooting</a></h2>
-<h3 id="bot-doesnt-respond"><a class="header" href="#bot-doesnt-respond">Bot doesn’t respond</a></h3>
+<h2 id="troubleshooting-6"><a class="header" href="#troubleshooting-6">Troubleshooting</a></h2>
+<h3 id="bot-doesnt-respond-1"><a class="header" href="#bot-doesnt-respond-1">Bot doesn’t respond</a></h3>
 <ul>
 <li>Verify <strong>Message Content Intent</strong> is enabled in the Developer Portal</li>
 <li>Check that the bot token is correct (reset it if unsure)</li>
@@ -4081,12 +4444,217 @@ the bot from connecting</li>
 <li>Check <code>group_policy</code> — if <code>"disabled"</code>, guild messages are ignored</li>
 <li>Check <code>guild_allowlist</code> — if non-empty, the guild must be listed</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="slack"><a class="header" href="#slack">Slack</a></h1>
+<p>Moltis can connect to Slack as a bot, letting you chat with your agent from any
+Slack workspace. The integration supports both <strong>Socket Mode</strong> (default, no
+public URL needed) and <strong>Events API</strong> (webhook-based).</p>
+<h2 id="how-it-works-6"><a class="header" href="#how-it-works-6">How It Works</a></h2>
+<pre><code>┌──────────────────────────────────────────────────────┐
+│                    Slack API                          │
+│            (Socket Mode / Events API)                │
+└──────────────────┬───────────────────────────────────┘
+                   │  WebSocket (Socket Mode)
+                   │  or HTTP POST (Events API)
+                   ▼
+┌──────────────────────────────────────────────────────┐
+│                moltis-slack crate                     │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────┐  │
+│  │  Handler   │  │  Outbound  │  │     Plugin     │  │
+│  │ (inbound)  │  │ (replies)  │  │  (lifecycle)   │  │
+│  └────────────┘  └────────────┘  └────────────────┘  │
+└──────────────────┬───────────────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────────────┐
+│                 Moltis Gateway                        │
+│         (chat dispatch, tools, memory)                │
+└──────────────────────────────────────────────────────┘
+</code></pre>
+<p>With <strong>Socket Mode</strong> (the default), the bot opens an outbound WebSocket
+connection to Slack — no public URL, port forwarding, or TLS certificate is
+needed. With <strong>Events API</strong> mode, Slack sends HTTP POST requests to your server,
+requiring a publicly reachable endpoint.</p>
+<h2 id="prerequisites-3"><a class="header" href="#prerequisites-3">Prerequisites</a></h2>
+<p>Before configuring Moltis, create a Slack app:</p>
+<ol>
+<li>Go to <a href="https://api.slack.com/apps">api.slack.com/apps</a> and click <strong>Create New App</strong></li>
+<li>Choose <strong>From scratch</strong>, name the app, and select your workspace</li>
+<li>Navigate to <strong>OAuth &amp; Permissions</strong> and add these Bot Token Scopes:
+<ul>
+<li><code>app_mentions:read</code> — read @mentions</li>
+<li><code>chat:write</code> — send messages</li>
+<li><code>im:history</code> — read DM history</li>
+<li><code>im:read</code> — view DM metadata</li>
+<li><code>channels:history</code> — read channel messages (for <code>mention_mode = "always"</code>)</li>
+</ul>
+</li>
+<li>Click <strong>Install to Workspace</strong> and copy the <strong>Bot User OAuth Token</strong> (<code>xoxb-...</code>)</li>
+<li>For Socket Mode (recommended):
+<ul>
+<li>Go to <strong>Socket Mode</strong> and enable it</li>
+<li>Generate an <strong>App-Level Token</strong> (<code>xapp-...</code>) with the <code>connections:write</code> scope</li>
+</ul>
+</li>
+<li>For Events API mode:
+<ul>
+<li>Go to <strong>Event Subscriptions</strong> and enable it</li>
+<li>Set the Request URL to your Moltis instance endpoint</li>
+<li>Copy the <strong>Signing Secret</strong> from <strong>Basic Information</strong></li>
+</ul>
+</li>
+<li>Under <strong>Event Subscriptions &gt; Subscribe to bot events</strong>, add:
+<ul>
+<li><code>app_mention</code> — when someone @mentions the bot</li>
+<li><code>message.im</code> — direct messages to the bot</li>
+</ul>
+</li>
+</ol>
+<div id="admonition-warning" class="admonition admonish-warning" role="note" aria-labelledby="admonition-warning-title">
+<div class="admonition-title">
+<div id="admonition-warning-title">
+<p>Warning</p>
+</div>
+<a class="admonition-anchor-link" href="slack.html#admonition-warning"></a>
+</div>
+<div>
+<p>The bot token and app token are secrets — treat them like passwords. Never
+commit them to version control. Moltis stores them with <code>secrecy::Secret</code> and
+redacts them from logs.</p>
+</div>
+</div>
+<h2 id="configuration-11"><a class="header" href="#configuration-11">Configuration</a></h2>
+<p>Add a <code>[channels.slack.&lt;account-id&gt;]</code> section to your <code>moltis.toml</code>:</p>
+<pre><code class="language-toml">[channels.slack.my-bot]
+bot_token = "xoxb-your-bot-token"
+app_token = "xapp-your-app-token"
+</code></pre>
+<p>Make sure <code>"slack"</code> is included in <code>channels.offered</code>:</p>
+<pre><code class="language-toml">[channels]
+offered = ["slack"]
+</code></pre>
+<h3 id="configuration-fields-2"><a class="header" href="#configuration-fields-2">Configuration Fields</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Required</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>bot_token</code></td><td><strong>yes</strong></td><td>—</td><td>Bot user OAuth token (<code>xoxb-...</code>)</td></tr>
+<tr><td><code>app_token</code></td><td><strong>yes</strong>*</td><td>—</td><td>App-level token for Socket Mode (<code>xapp-...</code>). *Required for <code>socket_mode</code>.</td></tr>
+<tr><td><code>connection_mode</code></td><td>no</td><td><code>"socket_mode"</code></td><td>Connection method: <code>"socket_mode"</code> or <code>"events_api"</code></td></tr>
+<tr><td><code>signing_secret</code></td><td>no*</td><td>—</td><td>Signing secret for Events API request verification. *Required for <code>events_api</code>.</td></tr>
+<tr><td><code>dm_policy</code></td><td>no</td><td><code>"allowlist"</code></td><td>Who can DM the bot: <code>"open"</code>, <code>"allowlist"</code>, or <code>"disabled"</code></td></tr>
+<tr><td><code>group_policy</code></td><td>no</td><td><code>"open"</code></td><td>Who can talk to the bot in channels: <code>"open"</code>, <code>"allowlist"</code>, or <code>"disabled"</code></td></tr>
+<tr><td><code>mention_mode</code></td><td>no</td><td><code>"mention"</code></td><td>When the bot responds in channels: <code>"always"</code>, <code>"mention"</code>, or <code>"none"</code></td></tr>
+<tr><td><code>allowlist</code></td><td>no</td><td><code>[]</code></td><td>Slack user IDs allowed to DM the bot (when <code>dm_policy = "allowlist"</code>)</td></tr>
+<tr><td><code>channel_allowlist</code></td><td>no</td><td><code>[]</code></td><td>Slack channel IDs allowed to interact with the bot</td></tr>
+<tr><td><code>model</code></td><td>no</td><td>—</td><td>Override the default model for this channel</td></tr>
+<tr><td><code>model_provider</code></td><td>no</td><td>—</td><td>Provider for the overridden model</td></tr>
+<tr><td><code>stream_mode</code></td><td>no</td><td><code>"edit_in_place"</code></td><td>Streaming mode: <code>"edit_in_place"</code>, <code>"native"</code>, or <code>"off"</code></td></tr>
+<tr><td><code>edit_throttle_ms</code></td><td>no</td><td><code>500</code></td><td>Minimum milliseconds between streaming edit updates</td></tr>
+<tr><td><code>thread_replies</code></td><td>no</td><td><code>true</code></td><td>Reply in threads</td></tr>
+</tbody></table>
+</div><div id="admonition-allowlist-values-are-strings" class="admonition admonish-tip" role="note" aria-labelledby="admonition-allowlist-values-are-strings-title">
+<div class="admonition-title">
+<div id="admonition-allowlist-values-are-strings-title">
+<p>Allowlist values are strings</p>
+</div>
+<a class="admonition-anchor-link" href="slack.html#admonition-allowlist-values-are-strings"></a>
+</div>
+<div>
+<p>All allowlist entries must be <strong>strings</strong>. Use Slack user IDs like
+<code>["U0123456789"]</code>. Matching is case-insensitive and supports glob wildcards.</p>
+</div>
+</div>
+<h3 id="full-example-2"><a class="header" href="#full-example-2">Full Example</a></h3>
+<pre><code class="language-toml">[channels]
+offered = ["slack"]
+
+[channels.slack.my-bot]
+bot_token = "xoxb-..."
+app_token = "xapp-..."
+connection_mode = "socket_mode"
+dm_policy = "allowlist"
+group_policy = "open"
+mention_mode = "mention"
+allowlist = ["U0123456789", "U9876543210"]
+channel_allowlist = ["C0123456789"]
+model = "claude-sonnet-4-20250514"
+model_provider = "anthropic"
+stream_mode = "edit_in_place"
+edit_throttle_ms = 500
+thread_replies = true
+</code></pre>
+<h3 id="events-api-mode"><a class="header" href="#events-api-mode">Events API Mode</a></h3>
+<p>If you prefer webhook-based delivery instead of Socket Mode:</p>
+<pre><code class="language-toml">[channels.slack.my-bot]
+bot_token = "xoxb-..."
+connection_mode = "events_api"
+signing_secret = "abc123..."
+</code></pre>
+<p>This requires your Moltis instance to be reachable from the internet (or use
+<a href="configuration.html#tailscale-integration">Tailscale Funnel</a>).</p>
+<h2 id="access-control-3"><a class="header" href="#access-control-3">Access Control</a></h2>
+<p>Slack uses the same gating system as Telegram, Discord, and other channels.</p>
+<h3 id="dm-policy-3"><a class="header" href="#dm-policy-3">DM Policy</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"allowlist"</code></td><td>Only users listed in <code>allowlist</code> can DM (default)</td></tr>
+<tr><td><code>"open"</code></td><td>Anyone in the workspace can DM the bot</td></tr>
+<tr><td><code>"disabled"</code></td><td>DMs are silently ignored</td></tr>
+</tbody></table>
+</div>
+<h3 id="group-policy-3"><a class="header" href="#group-policy-3">Group Policy</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"open"</code></td><td>Bot responds in any channel it’s invited to (default)</td></tr>
+<tr><td><code>"allowlist"</code></td><td>Only channels listed in <code>channel_allowlist</code> are allowed</td></tr>
+<tr><td><code>"disabled"</code></td><td>Channel messages are silently ignored</td></tr>
+</tbody></table>
+</div>
+<h3 id="mention-mode-3"><a class="header" href="#mention-mode-3">Mention Mode</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Value</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"mention"</code></td><td>Bot only responds when @mentioned (default)</td></tr>
+<tr><td><code>"always"</code></td><td>Bot responds to every message in allowed channels</td></tr>
+<tr><td><code>"none"</code></td><td>Bot never responds in channels (useful for DM-only bots)</td></tr>
+</tbody></table>
+</div>
+<h3 id="allowlist-matching-2"><a class="header" href="#allowlist-matching-2">Allowlist Matching</a></h3>
+<p>Allowlist entries support:</p>
+<ul>
+<li><strong>Exact match</strong> (case-insensitive): <code>"U0123456789"</code></li>
+<li><strong>Glob wildcards</strong>: <code>"U012*"</code>, <code>"*admin*"</code></li>
+</ul>
+<h2 id="streaming-1"><a class="header" href="#streaming-1">Streaming</a></h2>
+<p>Slack supports three streaming modes:</p>
+<div class="table-wrapper"><table><thead><tr><th>Mode</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>"edit_in_place"</code></td><td>Sends a placeholder message and edits it as tokens arrive (default)</td></tr>
+<tr><td><code>"native"</code></td><td>Uses Slack’s streaming API (<code>chat.startStream</code>/<code>chat.appendStream</code>/<code>chat.stopStream</code>)</td></tr>
+<tr><td><code>"off"</code></td><td>No streaming — sends the full response as a single message</td></tr>
+</tbody></table>
+</div>
+<p>The <code>edit_in_place</code> mode throttles updates to <code>edit_throttle_ms</code> milliseconds
+(default: 500) to avoid Slack API rate limits.</p>
+<h2 id="thread-replies"><a class="header" href="#thread-replies">Thread Replies</a></h2>
+<p>By default (<code>thread_replies = true</code>), the bot replies in a thread attached to
+the user’s message. Set <code>thread_replies = false</code> to have the bot reply directly
+in the channel.</p>
+<h2 id="troubleshooting-7"><a class="header" href="#troubleshooting-7">Troubleshooting</a></h2>
+<h3 id="bot-doesnt-respond-2"><a class="header" href="#bot-doesnt-respond-2">Bot doesn’t respond</a></h3>
+<ul>
+<li>Verify the bot and app tokens are correct</li>
+<li>Check that Socket Mode is enabled in the Slack app settings</li>
+<li>Check <code>dm_policy</code> — if set to <code>"allowlist"</code>, make sure your Slack user ID
+is in <code>allowlist</code></li>
+<li>Ensure the bot has been invited to channels you want it to respond in</li>
+<li>Look at logs: <code>RUST_LOG=moltis_slack=debug moltis</code></li>
+</ul>
+<h3 id="bot-doesnt-respond-in-channels"><a class="header" href="#bot-doesnt-respond-in-channels">Bot doesn’t respond in channels</a></h3>
+<ul>
+<li>Check <code>mention_mode</code> — if <code>"mention"</code>, you must @mention the bot</li>
+<li>Check <code>group_policy</code> — if <code>"disabled"</code>, channel messages are ignored</li>
+<li>Check <code>channel_allowlist</code> — if non-empty, the channel must be listed</li>
+<li>Ensure the bot is a member of the channel (invite it with <code>/invite @botname</code>)</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="whatsapp-channel"><a class="header" href="#whatsapp-channel">WhatsApp Channel</a></h1>
 <p>Moltis supports WhatsApp as a messaging channel using the WhatsApp Linked Devices
 protocol. Your WhatsApp account connects as a linked device (like WhatsApp Web),
 so no separate phone number or WhatsApp Business API is needed — you pair your
 existing personal or business WhatsApp by scanning a QR code.</p>
-<h2 id="how-it-works-5"><a class="header" href="#how-it-works-5">How It Works</a></h2>
+<h2 id="how-it-works-7"><a class="header" href="#how-it-works-7">How It Works</a></h2>
 <pre><code>┌────────────────┐   QR pair   ┌─────────────────┐   Signal   ┌──────────────┐
 │  Your Phone    │ ──────────► │  Moltis Gateway  │ ◄────────► │  WhatsApp    │
 │  (WhatsApp)    │             │  (linked device)  │            │  Servers     │
@@ -4198,7 +4766,7 @@ model_provider = "anthropic"
 <tr><td><code>otp_cooldown_secs</code></td><td>int</td><td><code>300</code></td><td>Cooldown seconds after 3 failed OTP attempts</td></tr>
 </tbody></table>
 </div>
-<h3 id="full-example-1"><a class="header" href="#full-example-1">Full Example</a></h3>
+<h3 id="full-example-3"><a class="header" href="#full-example-3">Full Example</a></h3>
 <pre><code class="language-toml">[channels.whatsapp."personal"]
 paired = true
 display_name = "John's iPhone"
@@ -4219,7 +4787,7 @@ group_allowlist = ["120363456789@g.us"]
 model = "openai/gpt-4.1"
 model_provider = "openai"
 </code></pre>
-<h2 id="access-control-1"><a class="header" href="#access-control-1">Access Control</a></h2>
+<h2 id="access-control-4"><a class="header" href="#access-control-4">Access Control</a></h2>
 <p>WhatsApp uses the same access control model as Telegram channels.</p>
 <h3 id="dm-policies"><a class="header" href="#dm-policies">DM Policies</a></h3>
 <div class="table-wrapper"><table><thead><tr><th>Policy</th><th>Behavior</th></tr></thead><tbody>
@@ -4235,7 +4803,7 @@ model_provider = "openai"
 <tr><td><code>disabled</code></td><td>Bot ignores all group messages</td></tr>
 </tbody></table>
 </div>
-<h3 id="otp-self-approval-1"><a class="header" href="#otp-self-approval-1">OTP Self-Approval</a></h3>
+<h3 id="otp-self-approval-3"><a class="header" href="#otp-self-approval-3">OTP Self-Approval</a></h3>
 <p>When <code>dm_policy = "allowlist"</code> and <code>otp_self_approval = true</code> (the default),
 users not on the allowlist can request access:</p>
 <ol>
@@ -4406,7 +4974,7 @@ the bot replies asking the user to send a text message instead.</p>
 <li><strong>Approve</strong> or <strong>Deny</strong> users directly</li>
 <li>View pending OTP challenges with the code displayed</li>
 </ul>
-<h2 id="troubleshooting-6"><a class="header" href="#troubleshooting-6">Troubleshooting</a></h2>
+<h2 id="troubleshooting-8"><a class="header" href="#troubleshooting-8">Troubleshooting</a></h2>
 <h3 id="qr-code-not-appearing"><a class="header" href="#qr-code-not-appearing">QR Code Not Appearing</a></h3>
 <ul>
 <li>Ensure the <code>whatsapp</code> feature is enabled (it is by default)</li>
@@ -4483,7 +5051,7 @@ faster and more lightweight.</p>
 <li><strong>BrowserPool</strong> (<code>crates/browser/src/pool.rs</code>) - Chrome instance management</li>
 <li><strong>Snapshot</strong> (<code>crates/browser/src/snapshot.rs</code>) - DOM element extraction</li>
 </ul>
-<h2 id="configuration-10"><a class="header" href="#configuration-10">Configuration</a></h2>
+<h2 id="configuration-12"><a class="header" href="#configuration-12">Configuration</a></h2>
 <p>Browser automation is <strong>enabled by default</strong>. To customize, add to your <code>moltis.toml</code>:</p>
 <pre><code class="language-toml">[tools.browser]
 enabled = true              # Enable browser support
@@ -4834,7 +5402,7 @@ tool calls with missing required fields. Moltis handles this gracefully:</p>
 <li><strong>Muted error display</strong>: Validation errors show as muted/informational cards
 in the UI (60% opacity, gray text) to indicate they’re expected, not alarming</li>
 </ul>
-<h2 id="troubleshooting-7"><a class="header" href="#troubleshooting-7">Troubleshooting</a></h2>
+<h2 id="troubleshooting-9"><a class="header" href="#troubleshooting-9">Troubleshooting</a></h2>
 <h3 id="browser-not-launching"><a class="header" href="#browser-not-launching">Browser not launching</a></h3>
 <ul>
 <li>Ensure Chrome/Chromium is installed</li>
@@ -4877,7 +5445,7 @@ agent gains a <code>caldav</code> tool that can list calendars, query events, an
 update, or delete entries on your behalf.</p>
 <p>The feature is compiled in by default (the <code>caldav</code> cargo feature) and can be
 disabled at build time with <code>--no-default-features</code>.</p>
-<h2 id="configuration-11"><a class="header" href="#configuration-11">Configuration</a></h2>
+<h2 id="configuration-13"><a class="header" href="#configuration-13">Configuration</a></h2>
 <p>Add a <code>[caldav]</code> section to your <code>moltis.toml</code> (usually <code>~/.moltis/moltis.toml</code>):</p>
 <pre><code class="language-toml">[caldav]
 enabled = true
@@ -4941,7 +5509,7 @@ Passwords are stored in <code>moltis.toml</code> and redacted in logs, but the f
 is plain text on disk. Consider using <a href="vault.html">Vault</a> for encryption at rest.</p>
 </div>
 </div>
-<h2 id="how-it-works-6"><a class="header" href="#how-it-works-6">How it works</a></h2>
+<h2 id="how-it-works-8"><a class="header" href="#how-it-works-8">How it works</a></h2>
 <p>When Moltis starts and CalDAV is enabled with at least one account, a <code>caldav</code>
 tool is registered in the agent tool registry. The agent can then call it during
 conversations to interact with your calendars.</p>
@@ -5517,7 +6085,7 @@ before deleting a skill.</p>
 </ul>
 <p>You can remove any subscription by clicking the <strong>Remove</strong> button. This works from any device - useful for revoking access to old devices.</p>
 <p>Subscription changes are broadcast in real-time via WebSocket, so all connected clients see updates immediately.</p>
-<h3 id="how-it-works-7"><a class="header" href="#how-it-works-7">How It Works</a></h3>
+<h3 id="how-it-works-9"><a class="header" href="#how-it-works-9">How It Works</a></h3>
 <p>Moltis uses the Web Push API with VAPID (Voluntary Application Server Identification) keys:</p>
 <ol>
 <li><strong>VAPID Keys</strong>: On first run, the server generates a P-256 ECDSA key pair</li>
@@ -5567,7 +6135,7 @@ before deleting a skill.</p>
 }
 </code></pre>
 <p>Clicking a notification will open or focus the app and navigate to the relevant chat.</p>
-<h2 id="configuration-12"><a class="header" href="#configuration-12">Configuration</a></h2>
+<h2 id="configuration-14"><a class="header" href="#configuration-14">Configuration</a></h2>
 <h3 id="feature-flag-3"><a class="header" href="#feature-flag-3">Feature Flag</a></h3>
 <p>Push notifications are controlled by the <code>push-notifications</code> feature flag, which is enabled by default. To disable:</p>
 <pre><code class="language-toml"># In your Cargo.toml or when building
@@ -5606,7 +6174,7 @@ moltis-gateway = { default-features = false, features = ["web-ui", "tls"] }
 </tbody></table>
 </div>
 <p>Note: iOS push notifications require iOS 16.4 or later and the app must be installed as a PWA.</p>
-<h2 id="troubleshooting-8"><a class="header" href="#troubleshooting-8">Troubleshooting</a></h2>
+<h2 id="troubleshooting-10"><a class="header" href="#troubleshooting-10">Troubleshooting</a></h2>
 <h3 id="notifications-not-working"><a class="header" href="#notifications-not-working">Notifications Not Working</a></h3>
 <ol>
 <li><strong>Check permissions</strong>: Ensure notifications are allowed in browser/OS settings</li>
@@ -6044,7 +6612,7 @@ JSON object <code>{"kind":"created","sessionKey":"..."}</code> dispatched to
 <p>Unmapped provider names are passed through as-is.</p>
 <h2 id="unsupported-channels"><a class="header" href="#unsupported-channels">Unsupported Channels</a></h2>
 <p>Currently only Telegram and Discord channels are imported. If your OpenClaw configuration includes other channel types (Slack, WhatsApp, etc.), they will appear as warnings in the scan output but will not be imported.</p>
-<h2 id="troubleshooting-9"><a class="header" href="#troubleshooting-9">Troubleshooting</a></h2>
+<h2 id="troubleshooting-11"><a class="header" href="#troubleshooting-11">Troubleshooting</a></h2>
 <h3 id="import-not-detected"><a class="header" href="#import-not-detected">Import not detected</a></h3>
 <ul>
 <li>Verify the OpenClaw directory exists: <code>ls ~/.openclaw/</code></li>
@@ -6064,7 +6632,7 @@ JSON object <code>{"kind":"created","sessionKey":"..."}</code> dispatched to
 device that connects to your gateway and executes commands on your behalf.
 This lets the AI agent run shell commands on a Linux server, query a Raspberry
 Pi, or leverage a GPU machine — all from a single chat session.</p>
-<h2 id="how-it-works-8"><a class="header" href="#how-it-works-8">How It Works</a></h2>
+<h2 id="how-it-works-10"><a class="header" href="#how-it-works-10">How It Works</a></h2>
 <pre><code>┌──────────────┐    WebSocket     ┌─────────────────┐
 │  Your laptop │◄────────────────►│  Moltis gateway  │
 │  (browser)   │                  │  (moltis)        │
@@ -6391,6 +6959,7 @@ are configured:</p>
 <tr><td><code>/auth/callback</code></td><td>OAuth callback</td></tr>
 <tr><td><code>/manifest.json</code></td><td>PWA manifest</td></tr>
 <tr><td><code>/sw.js</code></td><td>Service worker</td></tr>
+<tr><td><code>/ws</code></td><td>Node WebSocket endpoint (device token auth at protocol level)</td></tr>
 </tbody></table>
 </div>
 <h2 id="request-throttling"><a class="header" href="#request-throttling">Request Throttling</a></h2>
@@ -6408,6 +6977,7 @@ required for the current request.</p>
 <tr><td>Other <code>/api/auth/*</code></td><td>120 requests per 60 seconds</td></tr>
 <tr><td>Other <code>/api/*</code></td><td>180 requests per 60 seconds</td></tr>
 <tr><td><code>/ws/chat</code> upgrade</td><td>30 requests per 60 seconds</td></tr>
+<tr><td><code>/ws</code> upgrade</td><td>30 requests per 60 seconds</td></tr>
 </tbody></table>
 </div>
 <p>When a limit is exceeded:</p>
@@ -6826,7 +7396,7 @@ drift re-trust, dependency install guards, kill switch, audit log), see
 <p>By default, Moltis requires explicit user approval before executing potentially
 dangerous commands. This “human-in-the-loop” design ensures the AI cannot take
 destructive actions without consent.</p>
-<h3 id="how-it-works-9"><a class="header" href="#how-it-works-9">How It Works</a></h3>
+<h3 id="how-it-works-11"><a class="header" href="#how-it-works-11">How It Works</a></h3>
 <p>When the agent wants to run a command:</p>
 <ol>
 <li>The command is analyzed against approval policies</li>
@@ -7053,6 +7623,7 @@ allowed.</p>
 <tr><td>Other <code>/api/auth/*</code></td><td>120 requests per 60 seconds</td></tr>
 <tr><td>Other <code>/api/*</code></td><td>180 requests per 60 seconds</td></tr>
 <tr><td><code>/ws/chat</code> upgrade</td><td>30 requests per 60 seconds</td></tr>
+<tr><td><code>/ws</code> upgrade</td><td>30 requests per 60 seconds</td></tr>
 </tbody></table>
 </div>
 <h3 id="when-limits-are-hit"><a class="header" href="#when-limits-are-hit">When Limits Are Hit</a></h3>
@@ -7367,20 +7938,32 @@ for easier access to configuration files:</p>
 <p>Moltis runs LLM-generated shell commands inside isolated containers for
 security. When Moltis itself runs in a container, it needs access to the host’s
 container runtime to create these sandbox containers.</p>
-<p><strong>Without the socket mount</strong>, sandbox execution is disabled. The agent will
-still work for chat-only interactions, but any tool that runs shell commands
-will fail.</p>
-<pre><code class="language-bash"># Required for sandbox execution
+<pre><code class="language-bash"># Recommended for full container isolation
 -v /var/run/docker.sock:/var/run/docker.sock
 </code></pre>
+<p><strong>Without the socket mount</strong>, Moltis automatically falls back to the
+<a href="sandbox.html#restricted-host-sandbox">restricted-host sandbox</a>, which provides
+lightweight isolation by clearing environment variables, restricting <code>PATH</code>,
+and applying resource limits via <code>ulimit</code>. Commands will execute successfully
+inside the Moltis container but without filesystem or network isolation.</p>
+<p>For full container-level isolation (filesystem boundaries, network policies),
+mount the Docker socket.</p>
+<p>If Moltis is itself running in Docker and your <code>data_dir()</code> mount is backed by
+a different host path than <code>/home/moltis/.moltis</code>, Moltis will try to discover
+that host path automatically from <code>docker inspect</code>/<code>podman inspect</code>. If that
+lookup fails, add this to <code>/home/moltis/.config/moltis/moltis.toml</code> inside the
+container:</p>
+<pre><code class="language-toml">[tools.exec.sandbox]
+host_data_dir = "/absolute/host/path/to/data"
+</code></pre>
+<p>For a bind mount like <code>-v ./data:/home/moltis/.moltis</code>, use the resolved host
+path to <code>./data</code>. Restart Moltis after changing the config so new sandbox
+containers pick up the corrected mount source.</p>
 <h3 id="security-consideration"><a class="header" href="#security-consideration">Security Consideration</a></h3>
 <p>Mounting the Docker socket gives the container full access to the Docker
 daemon. This is equivalent to root access on the host for practical purposes.
 Only run Moltis containers from trusted sources (official images from
 <code>ghcr.io/moltis-org/moltis</code>).</p>
-<p>If you cannot mount the Docker socket, Moltis will run in “no sandbox” mode —
-commands execute directly inside the Moltis container itself, which provides
-no isolation.</p>
 <h2 id="docker-compose"><a class="header" href="#docker-compose">Docker Compose</a></h2>
 <p>See <a href="../examples/docker-compose.yml"><code>examples/docker-compose.yml</code></a> for a
 complete example:</p>
@@ -7544,7 +8127,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t moltis:local .
 <p>OrbStack on macOS works identically to Docker — use the same socket path
 (<code>/var/run/docker.sock</code>). OrbStack’s lightweight Linux VM provides good
 isolation with lower resource usage than Docker Desktop.</p>
-<h2 id="troubleshooting-10"><a class="header" href="#troubleshooting-10">Troubleshooting</a></h2>
+<h2 id="troubleshooting-12"><a class="header" href="#troubleshooting-12">Troubleshooting</a></h2>
 <h3 id="cannot-connect-to-docker-daemon"><a class="header" href="#cannot-connect-to-docker-daemon">“Cannot connect to Docker daemon”</a></h3>
 <p>The Docker socket is not mounted or the Moltis user doesn’t have permission
 to access it. Verify:</p>
@@ -7656,7 +8239,7 @@ fly secrets set MOLTIS_PASSWORD="your-password"
 # Create persistent storage
 fly volumes create moltis_data --region iad --size 1
 </code></pre>
-<h3 id="how-it-works-10"><a class="header" href="#how-it-works-10">How it works</a></h3>
+<h3 id="how-it-works-12"><a class="header" href="#how-it-works-12">How it works</a></h3>
 <ul>
 <li><strong>Image</strong>: pulled from <code>ghcr.io/moltis-org/moltis:latest</code></li>
 <li><strong>Port</strong>: internal 8080, Fly terminates TLS and routes HTTPS traffic</li>
@@ -8237,7 +8820,7 @@ startup in the correct dependency order.</p>
     │   └── 20240205100004_init.sql   # files, chunks, embedding_cache, FTS
     └── src/lib.rs                     # run_migrations() (separate memory.db)
 </code></pre>
-<h2 id="how-it-works-11"><a class="header" href="#how-it-works-11">How It Works</a></h2>
+<h2 id="how-it-works-13"><a class="header" href="#how-it-works-13">How It Works</a></h2>
 <h3 id="migration-ownership"><a class="header" href="#migration-ownership">Migration Ownership</a></h3>
 <p>Each crate is autonomous and owns its schema:</p>
 <div class="table-wrapper"><table><thead><tr><th>Crate</th><th>Database</th><th>Tables</th><th>Migration File</th></tr></thead><tbody>
@@ -8395,7 +8978,7 @@ async fn test_session_operations() {
 <span class="boring">}</span></code></pre></pre>
 <p>The <code>init()</code> methods are retained (marked <code>#[doc(hidden)]</code>) specifically for tests.
 In production, migrations handle schema creation.</p>
-<h2 id="troubleshooting-11"><a class="header" href="#troubleshooting-11">Troubleshooting</a></h2>
+<h2 id="troubleshooting-13"><a class="header" href="#troubleshooting-13">Troubleshooting</a></h2>
 <h3 id="failed-to-run-migrations"><a class="header" href="#failed-to-run-migrations">“failed to run migrations”</a></h3>
 <ol>
 <li>Check file permissions on <code>~/.moltis/</code></li>
@@ -8694,7 +9277,7 @@ fn main() {
 
     // Now spans will add labels to metrics
 }</code></pre></pre>
-<h3 id="how-it-works-12"><a class="header" href="#how-it-works-12">How It Works</a></h3>
+<h3 id="how-it-works-14"><a class="header" href="#how-it-works-14">How It Works</a></h3>
 <p>When tracing is enabled, span fields are automatically added as metric labels:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -8779,7 +9362,7 @@ pub mod my_feature {
 
 counter!(my_feature::OPERATIONS_TOTAL).increment(1);
 <span class="boring">}</span></code></pre></pre>
-<h2 id="configuration-13"><a class="header" href="#configuration-13">Configuration</a></h2>
+<h2 id="configuration-15"><a class="header" href="#configuration-15">Configuration</a></h2>
 <p>Metrics configuration in <code>moltis.toml</code>:</p>
 <pre><code class="language-toml">[metrics]
 enabled = true              # Enable metrics collection (default: true)
@@ -8798,7 +9381,7 @@ labels = { env = "prod" }   # Add custom labels to all metrics
 <li><strong>Feature-gate everything</strong>: Use <code>#[cfg(feature = "metrics")]</code> to ensure zero overhead when disabled</li>
 <li><strong>Use predefined buckets</strong>: The <code>buckets</code> module has standard histogram buckets for common metric types</li>
 </ol>
-<h2 id="troubleshooting-12"><a class="header" href="#troubleshooting-12">Troubleshooting</a></h2>
+<h2 id="troubleshooting-14"><a class="header" href="#troubleshooting-14">Troubleshooting</a></h2>
 <h3 id="metrics-not-appearing"><a class="header" href="#metrics-not-appearing">Metrics not appearing</a></h3>
 <ol>
 <li>Verify the <code>metrics</code> feature is enabled at compile time</li>
