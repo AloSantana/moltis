@@ -1718,9 +1718,12 @@ scopes = ["mcp:read", "mcp:write"]
 </ul>
 <p>To use QMD:</p>
 <ol>
-<li>Install QMD separately from <a href="https://github.com/tobi/qmd">github.com/tobi/qmd</a></li>
+<li>Install the QMD CLI from <a href="https://github.com/tobi/qmd">github.com/tobi/qmd</a>: <code>npm install -g --ignore-scripts @tobilu/qmd</code> or <code>bun add -g @tobilu/qmd</code></li>
+<li>Verify the binary is on your <code>PATH</code>: <code>qmd --version</code></li>
 <li>Enable it in Settings &gt; Memory &gt; Backend</li>
 </ol>
+<p>Moltis invokes the <code>qmd</code> CLI directly for indexing and search, so the memory
+backend does not require a separate background daemon.</p>
 <h2 id="features-1"><a class="header" href="#features-1">Features</a></h2>
 <h3 id="citations"><a class="header" href="#citations">Citations</a></h3>
 <p>Citations append source file and line number information to search results:</p>
@@ -1929,6 +1932,7 @@ systems.</p>
 </ol>
 <h3 id="qmd-not-available"><a class="header" href="#qmd-not-available">QMD not available</a></h3>
 <ol>
+<li>Install QMD if needed: <code>npm install -g --ignore-scripts @tobilu/qmd</code> or <code>bun add -g @tobilu/qmd</code></li>
 <li>Verify QMD is installed: <code>qmd --version</code></li>
 <li>Check that the path is correct in settings</li>
 <li>Ensure QMD has indexed your collections: <code>qmd stats</code></li>
@@ -7877,6 +7881,9 @@ Registry on every release.</p>
   ghcr.io/moltis-org/moltis:latest
 </code></pre>
 <p>Open https://localhost:13131 in your browser and configure your LLM provider to start chatting.</p>
+<p>For unattended bootstraps, add <code>MOLTIS_PASSWORD</code>, <code>MOLTIS_PROVIDER</code>, and
+<code>MOLTIS_API_KEY</code> before first start. That pre-configures auth plus one LLM
+provider so you can skip the browser setup wizard entirely.</p>
 <h3 id="ports"><a class="header" href="#ports">Ports</a></h3>
 <div class="table-wrapper"><table><thead><tr><th>Port</th><th>Purpose</th></tr></thead><tbody>
 <tr><td>13131</td><td>Gateway (HTTPS) — web UI, API, WebSocket</td></tr>
@@ -8077,8 +8084,23 @@ sudo systemctl enable --now podman.socket
 <h3 id="api-keys-and-the-env-section"><a class="header" href="#api-keys-and-the-env-section">API Keys and the <code>[env]</code> Section</a></h3>
 <p>Features like web search (Brave), embeddings, and LLM provider API calls read
 keys from process environment variables (<code>std::env::var</code>). In Docker, there are
-two ways to provide these:</p>
-<p><strong>Option 1: <code>docker -e</code> flags</strong> (takes precedence)</p>
+three ways to provide these:</p>
+<p><strong>Option 1: Generic first-run LLM bootstrap</strong> (best for one provider)</p>
+<p>Use this when you want a minimal <code>docker compose</code> file with one chat provider
+and no manual setup:</p>
+<pre><code class="language-yaml">services:
+  moltis:
+    image: ghcr.io/moltis-org/moltis:latest
+    environment:
+      MOLTIS_PASSWORD: "change-me"
+      MOLTIS_PROVIDER: "openai"
+      MOLTIS_API_KEY: "sk-..."
+</code></pre>
+<p><code>MOLTIS_PROVIDER</code> must be a Moltis provider name such as <code>openai</code>,
+<code>anthropic</code>, <code>gemini</code>, <code>groq</code>, <code>openrouter</code>, or <code>mistral</code>. The shorter
+aliases <code>PROVIDER</code> and <code>API_KEY</code> also work, but the <code>MOLTIS_*</code> names are
+preferred because they are less likely to collide with other containers.</p>
+<p><strong>Option 2: Provider-specific <code>docker -e</code> flags</strong> (takes precedence for that provider)</p>
 <pre><code class="language-bash">docker run -d \
   --name moltis \
   -e BRAVE_API_KEY=your-key \
@@ -8086,7 +8108,7 @@ two ways to provide these:</p>
   ...
   ghcr.io/moltis-org/moltis:latest
 </code></pre>
-<p><strong>Option 2: <code>[env]</code> section in <code>moltis.toml</code></strong></p>
+<p><strong>Option 3: <code>[env]</code> section in <code>moltis.toml</code></strong></p>
 <p>Add an <code>[env]</code> section to your config file. These variables are injected into
 the Moltis process at startup, making them available to all features:</p>
 <pre><code class="language-toml">[env]
